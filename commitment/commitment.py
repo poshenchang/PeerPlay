@@ -51,11 +51,10 @@ Usage example
 
 from __future__ import annotations
 
-import os
 from typing import Any, Dict
 
 from ..network.network import NetworkNode, MSG_TYPE_COMMIT, MSG_TYPE_REVEAL
-from ..utils.crypto import hash_concat
+from ..utils.crypto import hash_concat, gen_nonce
 
 
 # ---------------------------------------------------------------------------
@@ -110,7 +109,7 @@ class CommitmentModule:
         nonce : bytes
             32 random bytes.  **Keep secret until reveal phase.**
         """
-        nonce: bytes = os.urandom(32)
+        nonce: bytes = gen_nonce(32)
         hash_val: str = hash_concat(action, nonce)
 
         payload: Dict[str, Any] = {
