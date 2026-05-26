@@ -14,6 +14,10 @@ import js  # 載入 JS 環境
 MSG_TYPE_VAL: str = "val"       # validation / echo broadcast
 MSG_TYPE_COMMIT: str = "commit" # commitment hash
 MSG_TYPE_REVEAL: str = "reveal" # commitment reveal
+MSG_TYPE_SHUFFLE: str = "shuffle"   # used when dealing
+MSG_TYPE_TAG: str = "tag"           # used when dealing
+MSG_TYPE_DETAG: str = "detag"       # used when dealing
+MSG_TYPE_FINALDEAL: str = "finaldeal" # used when dealing, for verification
 
 DEFAULT_TIMEOUT: float = 10.0   # seconds to wait for peer responses
 POLL_INTERVAL: float = 0.05     # seconds between queue polls
@@ -41,7 +45,7 @@ def receive_from_network(sender_id: str, json_str: str) -> None:
 
 @dataclass
 class RawMessage:
-    """A raw frame as stored in ``msg_queue``."""
+    """A raw frame as stored in ``msg_buffers``."""
     from_player: str          
     payload: Dict[str, Any]   
     timestamp: float = field(default_factory=time.time)
@@ -63,7 +67,8 @@ class NetworkNode:
         self.player_id: str = player_id
         self.player_list: List[str] = sorted(player_list)
         self.timeout: float = timeout
-        self.msg_queue: List[RawMessage] = []
+        # Tagged queue: messages are grouped by payload["type"].
+        self.msg_buffers: Dict[str, List[RawMessage]] = {}
         
         # 🌟 修正點 3：初始化時將自己綁定到全域變數，供 JS 呼叫口使用
         global global_network_node
@@ -76,7 +81,10 @@ class NetworkNode:
     def push_to_queue(self, from_player: str, json_str: str) -> None:
         try:
             payload = json.loads(json_str)
-            self.msg_queue.append(
+            msg_type = payload.get("type", "default")
+            if msg_type not in self.msg_buffers:
+                self.msg_buffers[msg_type] = []
+            self.msg_buffers[msg_type].append(
                 RawMessage(from_player=from_player, payload=payload)
             )
         except Exception as e:
@@ -119,7 +127,7 @@ class NetworkNode:
                  original_sender: sender,
                  content: rcv_msg }
 
-        2. Poll ``msg_queue`` for validation frames from other peers that
+        2. Poll ``msg_buffers[MSG_TYPE_VAL]`` for validation frames from other peers that
            share the same ``correlation_id``.  Stop when we have a majority
            or timeout expires.
 
@@ -178,8 +186,9 @@ class NetworkNode:
 
             matching: List[RawMessage] = []
             remaining: List[RawMessage] = []
-            
-            for msg in self.msg_queue:
+            val_buffer = self.msg_buffers.get(MSG_TYPE_VAL, [])
+
+            for msg in val_buffer:
                 p = msg.payload
                 is_val = p.get("type") == MSG_TYPE_VAL
                 same_corr = p.get("correlation_id") == correlation_id
@@ -195,7 +204,7 @@ class NetworkNode:
             for msg in matching:
                 votes[msg.from_player] = msg.payload.get("content")
 
-            self.msg_queue = remaining 
+            self.msg_buffers[MSG_TYPE_VAL] = remaining
 
             if not matching:
                 await asyncio.sleep(POLL_INTERVAL) 
@@ -227,7 +236,8 @@ class NetworkNode:
     ) -> List[RawMessage]:
         """
         Block until *expected_count* messages of *msg_type* arrive from
-        *from_players* (or timeout), then return and remove them from the queue.
+        *from_players* (or timeout), then return and remove them from that
+        tagged buffer.
 
         Used internally by CommitmentModule / ConsensusModule to collect
         commit and reveal frames without having to replicate the polling loop.
@@ -259,7 +269,8 @@ class NetworkNode:
                 break
 
             remaining: List[RawMessage] = []
-            for msg in self.msg_queue:
+            typed_buffer = self.msg_buffers.get(msg_type, [])
+            for msg in typed_buffer:
                 is_type = msg.payload.get("type") == msg_type
                 in_whitelist = msg.from_player in target_set
                 not_seen = msg.from_player not in seen_from
@@ -270,7 +281,7 @@ class NetworkNode:
                 else:
                     remaining.append(msg)
 
-            self.msg_queue = remaining
+            self.msg_buffers[msg_type] = remaining
             await asyncio.sleep(POLL_INTERVAL)
 
         return collected
