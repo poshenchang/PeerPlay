@@ -1,40 +1,11 @@
-"""
-network/network.py
-------------------
-P2P full-mesh (complete-graph) network layer for PeerPlay.
-
-Responsibilities
-~~~~~~~~~~~~~~~~
-* Maintain a sorted, globally-consistent ``player_list``.
-* Provide ``broadcast`` / ``receive`` as the **only** public send/receive API.
-* ``receive`` performs a majority-vote cross-check to detect Byzantine peers.
-* ``_connect`` / ``_send`` / ``_listen`` are **stubs** — transport-layer
-  implementation is delegated to the transport team.
-
-Concurrency model
-~~~~~~~~~~~~~~~~~
-``_listen`` runs in a **daemon thread** and appends every incoming frame into
-``msg_queue`` (protected by ``_queue_lock``).  ``receive`` polls that queue
-in a tight loop with a configurable timeout so neither side blocks the other
-and there is no risk of deadlock.
-
-Message types (stored in payload["type"])
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-MSG_TYPE_VAL    — validation broadcast emitted by ``receive``
-MSG_TYPE_COMMIT — commitment hash broadcast emitted by CommitmentModule
-MSG_TYPE_REVEAL — reveal broadcast emitted by CommitmentModule
-"""
-
-from __future__ import annotations
-
-import threading
+import json
 import time
 import uuid
+import asyncio
+from typing import Any, Dict, List, Optional, Tuple
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
-
-from ..utils.crypto import serialize
+import js  # 載入 JS 環境
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -51,6 +22,22 @@ MSG_TYPE_FINALDEAL: str = "finaldeal" # used when dealing, for verification
 DEFAULT_TIMEOUT: float = 10.0   # seconds to wait for peer responses
 POLL_INTERVAL: float = 0.05     # seconds between queue polls
 
+# ---------------------------------------------------------------------------
+# Global State for JS Bridge
+# ---------------------------------------------------------------------------
+# 🌟 修正點 2：宣告一個全域變數來儲存目前的網路節點實體，避免動態修改 sys.modules
+global_network_node = None
+
+def receive_from_network(sender_id: str, json_str: str) -> None:
+    """
+    [全域函式] 讓 JS 透過 Pyodide 直接呼叫的入口。
+    必須放在模組最外層，window.pyodide.globals 才能抓到。
+    """
+    if global_network_node is not None:
+        global_network_node.push_to_queue(sender_id, json_str)
+        js.js_append_log(f"[Python] 收到來自 {sender_id} 的封包！內容: {json_str}")
+    else:
+        js.js_append_log("[Python 錯誤] 網路節點尚未初始化，無法接收封包", "error")
 
 # ---------------------------------------------------------------------------
 # Data structures
@@ -59,32 +46,15 @@ POLL_INTERVAL: float = 0.05     # seconds between queue polls
 @dataclass
 class RawMessage:
     """A raw frame as stored in ``msg_queue``."""
-    from_player: str          # peer who sent this frame
-    payload: Dict[str, Any]   # decoded message body
+    from_player: str          
+    payload: Dict[str, Any]   
     timestamp: float = field(default_factory=time.time)
-
 
 # ---------------------------------------------------------------------------
 # NetworkNode
 # ---------------------------------------------------------------------------
 
 class NetworkNode:
-    """
-    Represents *this* player's network endpoint in the PeerPlay P2P mesh.
-
-    Parameters
-    ----------
-    player_id:
-        Unique identifier for this node (e.g. a public key fingerprint or
-        human-readable name).  Must appear in ``player_list``.
-    player_list:
-        Complete list of all players in the session.  Will be sorted
-        in-place so every node has the same canonical order.
-    timeout:
-        Default wall-clock seconds ``receive`` will wait for peer echoes
-        before falling back to whatever votes have arrived.
-    """
-
     def __init__(
         self,
         player_id: str,
@@ -95,109 +65,33 @@ class NetworkNode:
             raise ValueError(f"player_id '{player_id}' must be in player_list")
 
         self.player_id: str = player_id
-        # Sorted once; every node uses the same sort so the order is identical
         self.player_list: List[str] = sorted(player_list)
         self.timeout: float = timeout
-
-        # Thread-safe inbox — _listen appends, receive pops
         self.msg_queue: List[RawMessage] = []
-        self._queue_lock: threading.Lock = threading.Lock()
-
-        self._listen_thread: Optional[threading.Thread] = None
+        
+        # 🌟 修正點 3：初始化時將自己綁定到全域變數，供 JS 呼叫口使用
+        global global_network_node
+        global_network_node = self
 
     # ------------------------------------------------------------------
-    # Transport stubs (to be implemented by the transport team)
+    # JS Bridge (內部寫入)
     # ------------------------------------------------------------------
 
-    def _connect(self, player: str) -> None:
-        """
-        [STUB] Open a persistent connection to *player*.
-
-        Expected behaviour:
-        - Perform handshake / authentication.
-        - Store the connection handle so ``_send`` can look it up by player_id.
-        - Called once per peer during session setup.
-        """
-        raise NotImplementedError(
-            "_connect must be implemented by the transport layer"
-        )
-
-    def _send(self, player: str, payload: Dict[str, Any]) -> None:
-        """
-        [STUB] Deliver *payload* to a single *player* over the established
-        connection.
-
-        Expected behaviour:
-        - Look up the connection for *player*.
-        - Serialise *payload* (e.g. JSON over TCP / WebSocket).
-        - Raise ``ConnectionError`` on send failure so callers can decide
-          whether to retry or evict the peer.
-        """
-        raise NotImplementedError(
-            "_send must be implemented by the transport layer"
-        )
-
-    def _listen(self) -> None:
-        """
-        [STUB] Background daemon thread — read frames from the transport and
-        push them into ``msg_queue``.
-
-        Expected skeleton::
-
-            while True:
-                # Block until a frame arrives from the transport
-                from_player, raw_bytes = <transport>.recv()
-
-                payload = json.loads(raw_bytes)
-
-                # Append atomically; _queue_lock protects all queue access
-                with self._queue_lock:
-                    self.msg_queue.append(
-                        RawMessage(from_player=from_player, payload=payload)
-                    )
-
-        Notes
-        -----
-        * Never call ``broadcast`` or ``receive`` from inside this thread;
-          that would deadlock because both methods acquire ``_queue_lock``.
-        * Val-tagged frames (``MSG_TYPE_VAL``) are stored in the queue just
-          like any other frame — ``receive`` filters them out by type and
-          ``correlation_id``.
-        """
-        raise NotImplementedError(
-            "_listen must be implemented by the transport layer"
-        )
+    def push_to_queue(self, from_player: str, json_str: str) -> None:
+        try:
+            payload = json.loads(json_str)
+            self.msg_queue.append(
+                RawMessage(from_player=from_player, payload=payload)
+            )
+        except Exception as e:
+            js.js_append_log(f"[Python 錯誤] 封包解析失敗: {str(e)}", "error")
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
-
-    def start(self) -> None:
-        """
-        Spawn the background listener thread and connect to all peers.
-
-        Call this once after constructing the node and before any
-        ``broadcast`` / ``receive`` calls.
-        """
-        # Connect to every other player
-        for player in self.player_list:
-            if player != self.player_id:
-                self._connect(player)
-
-        # Start the listener daemon
-        self._listen_thread = threading.Thread(
-            target=self._listen,
-            name=f"listen-{self.player_id}",
-            daemon=True,
-        )
-        self._listen_thread.start()
-
     def broadcast(self, payload: Dict[str, Any]) -> None:
         """
         Send *payload* to every peer (all players except ourselves).
-
-        This is the **only** way external modules should send messages.
-        Do **not** call ``_send`` directly from outside this class.
 
         Parameters
         ----------
@@ -205,12 +99,12 @@ class NetworkNode:
             Arbitrary JSON-serialisable dict.  A ``from`` field is
             automatically injected so recipients know the origin.
         """
-        payload = {**payload, "from": self.player_id}
-        peers = [p for p in self.player_list if p != self.player_id]
-        for peer in peers:
-            self._send(peer, payload)
+        payload["from"] = self.player_id
+        json_str = json.dumps(payload)
+        # 🌟 呼叫綁定在 window 上的 JS 函式
+        js.js_send_to_network(json_str)
 
-    def receive(
+    async def receive(
         self,
         sender: str,
         rcv_msg: Any,
@@ -237,12 +131,6 @@ class NetworkNode:
            our own) determines ``real_msg``.
 
         4. Return ``(sender, real_msg)``.
-
-        Deadlock avoidance
-        ------------------
-        ``_listen`` **only** appends frames — it never calls ``receive`` or
-        ``broadcast``.  ``receive`` polls the queue with a sleep loop, so
-        there is no nested lock acquisition.
 
         Timeout handling
         ----------------
@@ -273,11 +161,7 @@ class NetworkNode:
         if timeout is None:
             timeout = self.timeout
 
-        # --- Step 1: announce what we received ---
-        # correlation_id scopes the vote to this specific receive() call
-        # so concurrent receive() calls on different messages don't mix.
         correlation_id = str(uuid.uuid4())
-
         val_payload: Dict[str, Any] = {
             "type": MSG_TYPE_VAL,
             "correlation_id": correlation_id,
@@ -286,56 +170,46 @@ class NetworkNode:
         }
         self.broadcast(val_payload)
 
-        # --- Step 2: collect validation echoes from peers ---
         peers = set(self.player_list) - {self.player_id}
         majority_threshold = len(self.player_list) // 2 + 1
-
-        # Seed with our own vote
         votes: Dict[str, Any] = {self.player_id: rcv_msg}
 
-        deadline = time.monotonic() + timeout
+        deadline = time.time() + timeout
 
-        while time.monotonic() < deadline:
-            # We need at least majority_threshold votes total to stop early
+        while time.time() < deadline:
             if len(votes) >= majority_threshold:
                 break
 
             matching: List[RawMessage] = []
+            remaining: List[RawMessage] = []
+            
+            for msg in self.msg_queue:
+                p = msg.payload
+                is_val = p.get("type") == MSG_TYPE_VAL
+                same_corr = p.get("correlation_id") == correlation_id
+                same_orig = p.get("original_sender") == sender
+                new_voter = msg.from_player not in votes
+                known_peer = msg.from_player in peers
 
-            with self._queue_lock:
-                remaining: List[RawMessage] = []
-                for msg in self.msg_queue:
-                    p = msg.payload
-                    is_val = p.get("type") == MSG_TYPE_VAL
-                    same_corr = p.get("correlation_id") == correlation_id
-                    same_orig = p.get("original_sender") == sender
-                    new_voter = msg.from_player not in votes
-                    known_peer = msg.from_player in peers
+                if is_val and same_corr and same_orig and new_voter and known_peer:
+                    matching.append(msg)
+                else:
+                    remaining.append(msg) 
 
-                    if is_val and same_corr and same_orig and new_voter and known_peer:
-                        matching.append(msg)
-                    else:
-                        remaining.append(msg)  # keep unrelated messages
+            for msg in matching:
+                votes[msg.from_player] = msg.payload.get("content")
 
-                for msg in matching:
-                    votes[msg.from_player] = msg.payload.get("content")
-
-                self.msg_queue = remaining  # prune consumed frames
+            self.msg_queue = remaining 
 
             if not matching:
-                time.sleep(POLL_INTERVAL)
+                await asyncio.sleep(POLL_INTERVAL) 
 
-        # --- Step 3: majority vote ---
         if not votes:
-            raise RuntimeError(
-                f"receive({sender!r}): no votes collected — "
-                "network may be partitioned"
-            )
+            raise RuntimeError(f"receive({sender!r}): no votes collected")
 
         def _to_key(v: Any) -> str:
-            """Deterministic, hashable representation for Counter."""
             try:
-                return serialize(v).decode("utf-8")
+                return json.dumps(v, sort_keys=True) 
             except Exception:
                 return repr(v)
 
@@ -343,26 +217,12 @@ class NetworkNode:
         winner_key, winner_count = counter.most_common(1)[0]
 
         if winner_count < majority_threshold:
-            # Warn but still return best guess — caller can escalate
-            import warnings
-            warnings.warn(
-                f"receive({sender!r}): only {winner_count}/{len(self.player_list)} "
-                "votes agree — possible Byzantine peer",
-                stacklevel=2,
-            )
+            js.js_append_log(f"[警告] receive({sender!r}): 只有 {winner_count}/{len(self.player_list)} 同意 — 可能有作弊者", "error")
 
-        # Recover the original Python object matching the winner key
-        real_msg: Any = next(
-            v for v in votes.values() if _to_key(v) == winner_key
-        )
-
+        real_msg: Any = next(v for v in votes.values() if _to_key(v) == winner_key)
         return (sender, real_msg)
 
-    # ------------------------------------------------------------------
-    # Internal helpers (available to sibling modules)
-    # ------------------------------------------------------------------
-
-    def consume_messages(
+    async def consume_messages(
         self,
         msg_type: str,
         from_players: Optional[List[str]] = None,
@@ -396,28 +256,26 @@ class NetworkNode:
         target_set = set(from_players)
         collected: List[RawMessage] = []
         seen_from: set = set()
-        deadline = time.monotonic() + timeout
+        deadline = time.time() + timeout
 
-        while time.monotonic() < deadline:
+        while time.time() < deadline:
             if expected_count is not None and len(collected) >= expected_count:
                 break
 
-            with self._queue_lock:
-                remaining: List[RawMessage] = []
-                for msg in self.msg_queue:
-                    is_type = msg.payload.get("type") == msg_type
-                    in_whitelist = msg.from_player in target_set
-                    not_seen = msg.from_player not in seen_from
+            remaining: List[RawMessage] = []
+            for msg in self.msg_queue:
+                is_type = msg.payload.get("type") == msg_type
+                in_whitelist = msg.from_player in target_set
+                not_seen = msg.from_player not in seen_from
 
-                    if is_type and in_whitelist and not_seen:
-                        collected.append(msg)
-                        seen_from.add(msg.from_player)
-                    else:
-                        remaining.append(msg)
+                if is_type and in_whitelist and not_seen:
+                    collected.append(msg)
+                    seen_from.add(msg.from_player)
+                else:
+                    remaining.append(msg)
 
-                self.msg_queue = remaining
-
-            time.sleep(POLL_INTERVAL)
+            self.msg_queue = remaining
+            await asyncio.sleep(POLL_INTERVAL)
 
         return collected
 
