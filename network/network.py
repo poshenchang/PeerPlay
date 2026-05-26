@@ -262,27 +262,37 @@ class NetworkNode:
         target_set = set(from_players)
         collected: List[RawMessage] = []
         seen_from: set = set()
-        deadline = time.time() + timeout
 
-        while time.time() < deadline:
+        # Use remaining-time countdown to avoid time.time() semantics
+        remaining_timeout = timeout
+
+        # Poll only the typed buffer, update that buffer in-place
+        while remaining_timeout > 0:
             if expected_count is not None and len(collected) >= expected_count:
                 break
 
             remaining: List[RawMessage] = []
             typed_buffer = self.msg_buffers.get(msg_type, [])
+
             for msg in typed_buffer:
-                is_type = msg.payload.get("type") == msg_type
                 in_whitelist = msg.from_player in target_set
                 not_seen = msg.from_player not in seen_from
 
-                if is_type and in_whitelist and not_seen:
+                if in_whitelist and not_seen:
                     collected.append(msg)
                     seen_from.add(msg.from_player)
                 else:
                     remaining.append(msg)
 
-            self.msg_buffers[msg_type] = remaining
+            # Replace only the typed buffer with leftover messages
+            if remaining:
+                self.msg_buffers[msg_type] = remaining
+            else:
+                # If no remaining messages, ensure empty list to avoid future get default
+                self.msg_buffers[msg_type] = []
+
             await asyncio.sleep(POLL_INTERVAL)
+            remaining_timeout -= POLL_INTERVAL
 
         return collected
 
