@@ -43,6 +43,10 @@ from ..utils.crypto import serialize
 MSG_TYPE_VAL: str = "val"       # validation / echo broadcast
 MSG_TYPE_COMMIT: str = "commit" # commitment hash
 MSG_TYPE_REVEAL: str = "reveal" # commitment reveal
+MSG_TYPE_SHUFFLE: str = "shuffle"   # used when dealing
+MSG_TYPE_TAG: str = "tag"           # used when dealing
+MSG_TYPE_DETAG: str = "detag"       # used when dealing
+MSG_TYPE_FINALDEAL: str = "finaldeal" # used when dealing, for verification
 
 DEFAULT_TIMEOUT: float = 10.0   # seconds to wait for peer responses
 POLL_INTERVAL: float = 0.05     # seconds between queue polls
