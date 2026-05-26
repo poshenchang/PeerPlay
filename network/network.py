@@ -14,10 +14,6 @@ import js  # 載入 JS 環境
 MSG_TYPE_VAL: str = "val"       # validation / echo broadcast
 MSG_TYPE_COMMIT: str = "commit" # commitment hash
 MSG_TYPE_REVEAL: str = "reveal" # commitment reveal
-MSG_TYPE_SHUFFLE: str = "shuffle"   # used when dealing
-MSG_TYPE_TAG: str = "tag"           # used when dealing
-MSG_TYPE_DETAG: str = "detag"       # used when dealing
-MSG_TYPE_FINALDEAL: str = "finaldeal" # used when dealing, for verification
 
 DEFAULT_TIMEOUT: float = 10.0   # seconds to wait for peer responses
 POLL_INTERVAL: float = 0.05     # seconds between queue polls
@@ -283,5 +279,8 @@ class NetworkNode:
         """Return all players except ourselves."""
         return [p for p in self.player_list if p != self.player_id]
     
+# ... 前面的程式碼保持不變 ...
+
+
 import js
 js.python_receive_from_network = receive_from_network

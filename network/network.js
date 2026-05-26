@@ -20,7 +20,7 @@ export function initNetwork(appId) {
 function searchAndJoinRoom(appId) {
   if (isJoiningRoom) return;
   isJoiningRoom = true;
-  isJumping = false; // 進入新房間，重設跳轉鎖
+  isJumping = false;
   
   myPeers.clear();
   isRoomFull = false;
@@ -36,9 +36,7 @@ function searchAndJoinRoom(appId) {
 
   rawAction = room.makeAction('rawJsonPayload');
   rawAction.onMessage = (jsonStr, { peerId }) => {
-    // 🛡️ 防禦：跳轉中不收任何封包
     if (isJumping) return; 
-    
     if (pythonCoreReady && window.python_receive_from_network) {
       window.python_receive_from_network(peerId, jsonStr);
     }
@@ -46,17 +44,17 @@ function searchAndJoinRoom(appId) {
 
   sysAction = room.makeAction('sysInfo');
   sysAction.onMessage = (msg, { peerId }) => {
-    // 🛡️ 防禦：已經在跳轉了，無視其他老玩家重複發送的 REJECT
     if (isJumping) return; 
-    
     if (msg.type === 'REJECT' && !isRoomFull) {
       window.appendLog(`[系統] 此房間已經客滿，自動跳轉至下一間...`, 'error');
       jumpToNextRoom(appId);
     }
   };
 
+  // 🌟 新增：用來計算寬限期的計時器
+  let disbandTimeout = null;
+
   room.onPeerJoin = peerId => {
-    // 🛡️ 防禦：我已經在跳轉了，舊房間的殘留連線直接無視
     if (isJumping) return; 
 
     if (isRoomFull) {
@@ -69,20 +67,45 @@ function searchAndJoinRoom(appId) {
     
     if (myPeers.size + 1 === MAX_PLAYERS) {
       isRoomFull = true;
-      window.appendLog(`[系統] 房間已滿 4 人！準備啟動應用程式...`, 'system');
-      
-      if (window.onRoomFull) {
-        window.onRoomFull(selfId, [selfId, ...Array.from(myPeers)]);
+
+      // 🌟 危機解除：如果在讀秒期間有人連回來了（或是新玩家補上空缺）
+      if (disbandTimeout) {
+        clearTimeout(disbandTimeout);
+        disbandTimeout = null;
+        window.appendLog(`[系統] 房間已重新滿員，危機解除！`, 'system');
+        
+        // 通知 Python 重新整理玩家名單，繼續運作
+        if (window.onRoomFull) {
+          window.onRoomFull(selfId, [selfId, ...Array.from(myPeers)]);
+        }
+      } else {
+        // 正常第一次滿員
+        window.appendLog(`[系統] 房間已滿 4 人！準備啟動應用程式...`, 'system');
+        if (window.onRoomFull) {
+          window.onRoomFull(selfId, [selfId, ...Array.from(myPeers)]);
+        }
       }
     }
   };
 
   room.onPeerLeave = peerId => {
-    // 🛡️ 防禦：跳轉中無視舊房間的離開事件
     if (isJumping) return; 
-
     myPeers.delete(peerId);
-    if (!isRoomFull) {
+
+    if (isRoomFull) {
+      // 🌟 寬限期邏輯：先解除滿員鎖定，讓原玩家有機會連回來
+      isRoomFull = false; 
+      window.appendLog(`[系統] 玩家 ${peerId.substring(0, 6)} 網路閃斷，給予 3 秒重連時間...`, 'error');
+
+      // 如果還沒開始倒數，就啟動 3 秒倒數計時
+      if (!disbandTimeout) {
+        disbandTimeout = setTimeout(() => {
+          window.appendLog(`[系統] 玩家超時未歸，強制解散！`, 'error');
+          disbandRoom(appId);
+          disbandTimeout = null;
+        }, 3000);
+      }
+    } else {
       window.appendLog(`[系統] 玩家 ${peerId.substring(0, 6)} 離開。目前 ${myPeers.size + 1}/${MAX_PLAYERS} 人`, 'system');
     }
   };
@@ -94,15 +117,29 @@ function jumpToNextRoom(appId) {
   if (isRoomFull || isJumping) return; 
   isJumping = true; 
   
-  // 同步斷開舊房間，徹底斬斷 WebRTC 連線
-  if (room) {
-    room.leave();
-    room = null;
-  }
+  if (room) { room.leave(); room = null; }
   myPeers.clear();
   
   currentRoomIdx++;
   setTimeout(() => searchAndJoinRoom(appId), 300);
+}
+
+// 🌟 新增：房間解散流程
+function disbandRoom(appId) {
+  isJumping = true; // 上鎖，防止解散過程中收到奇怪的封包
+  
+  if (room) { room.leave(); room = null; }
+  myPeers.clear();
+  isRoomFull = false;
+
+  // 通知 index.html 鎖定 UI 並清理 Python 狀態
+  if (window.onRoomDisband) {
+    window.onRoomDisband();
+  }
+
+  // 重設為 room_1 重新排隊，給予 1.5 秒延遲讓玩家看清楚發生什麼事
+  currentRoomIdx = 1;
+  setTimeout(() => searchAndJoinRoom(appId), 1500);
 }
 
 export function sendToNetwork(jsonStr) {
