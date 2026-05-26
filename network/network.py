@@ -282,3 +282,6 @@ class NetworkNode:
     def peers(self) -> List[str]:
         """Return all players except ourselves."""
         return [p for p in self.player_list if p != self.player_id]
+    
+import js
+js.python_receive_from_network = receive_from_network

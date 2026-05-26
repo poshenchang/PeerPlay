@@ -2,64 +2,111 @@ import { joinRoom, selfId } from 'https://esm.run/@trystero-p2p/mqtt';
 
 let room;
 let rawAction;
+let sysAction;
 let pythonCoreReady = false;
+const MAX_PLAYERS = 4;
+let currentRoomIdx = 1;
+let myPeers = new Set();
+let isRoomFull = false;
+let isJoiningRoom = false;
+let isJumping = false;
 
-// 初始化網路
-export function initNetwork(appId, roomId) {
+export function initNetwork(appId) {
+  window.js_send_to_network = sendToNetwork;
+  searchAndJoinRoom(appId);
+  return selfId;
+}
+
+function searchAndJoinRoom(appId) {
+  if (isJoiningRoom) return;
+  isJoiningRoom = true;
+  isJumping = false; // 進入新房間，重設跳轉鎖
+  
+  myPeers.clear();
+  isRoomFull = false;
+
+  const roomId = `room_${currentRoomIdx}`;
+  window.appendLog(`[系統] 嘗試進入房間 ${roomId}...`, 'system');
+
   room = joinRoom({ 
     appId: appId,
-    relayConfig: {
-      urls: [
-        'wss://broker.emqx.io:8084/mqtt',
-        'wss://broker.hivemq.com:8884/mqtt'
-      ]
-    },
-    rtcConfig: {
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:global.stun.twilio.com:3478' }
-      ]
-    }
+    relayConfig: { urls: ['wss://broker.emqx.io:8084/mqtt', 'wss://broker.hivemq.com:8884/mqtt'] },
+    rtcConfig: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
   }, roomId);
 
   rawAction = room.makeAction('rawJsonPayload');
-
-  // 🌟 修正點 1：將 JS 函式綁定到 window，讓 Python (Pyodide) 可以透過 js.xxx 呼叫
-  window.js_send_to_network = sendToNetwork;
-  // 確保 window.appendLog 存在，若無則降級使用 console.log
-  window.js_append_log = window.appendLog || console.log; 
-
   rawAction.onMessage = (jsonStr, { peerId }) => {
-    console.log(`[JS 網路層] 收到來自 ${peerId} 的封包，轉交給 Python...`);
-    if (pythonCoreReady && window.pyodide) {
-      // 🌟 確保抓取的是 Python 全域的 receive_from_network 函式
-      const pyReceive = window.pyodide.globals.get('receive_from_network');
-      if (pyReceive) {
-        pyReceive(peerId, jsonStr);
-      } else {
-        console.error("[JS 網路層] 找不到 Python 的 receive_from_network 函式");
-      }
+    // 🛡️ 防禦：跳轉中不收任何封包
+    if (isJumping) return; 
+    
+    if (pythonCoreReady && window.python_receive_from_network) {
+      window.python_receive_from_network(peerId, jsonStr);
+    }
+  };
+
+  sysAction = room.makeAction('sysInfo');
+  sysAction.onMessage = (msg, { peerId }) => {
+    // 🛡️ 防禦：已經在跳轉了，無視其他老玩家重複發送的 REJECT
+    if (isJumping) return; 
+    
+    if (msg.type === 'REJECT' && !isRoomFull) {
+      window.appendLog(`[系統] 此房間已經客滿，自動跳轉至下一間...`, 'error');
+      jumpToNextRoom(appId);
     }
   };
 
   room.onPeerJoin = peerId => {
-    window.js_append_log(`[系統] 節點 ${peerId.substring(0, 6)}... 已連線加入`, 'system');
+    // 🛡️ 防禦：我已經在跳轉了，舊房間的殘留連線直接無視
+    if (isJumping) return; 
+
+    if (isRoomFull) {
+      sysAction.send({ type: 'REJECT' }, { target: peerId });
+      return; 
+    }
+
+    myPeers.add(peerId);
+    window.appendLog(`[系統] 玩家 ${peerId.substring(0, 6)} 加入。目前 ${myPeers.size + 1}/${MAX_PLAYERS} 人`, 'system');
+    
+    if (myPeers.size + 1 === MAX_PLAYERS) {
+      isRoomFull = true;
+      window.appendLog(`[系統] 房間已滿 4 人！準備啟動應用程式...`, 'system');
+      
+      if (window.onRoomFull) {
+        window.onRoomFull(selfId, [selfId, ...Array.from(myPeers)]);
+      }
+    }
   };
 
   room.onPeerLeave = peerId => {
-    window.js_append_log(`[系統] 節點 ${peerId.substring(0, 6)}... 已斷開連線`, 'system');
-    // TODO: 未來可以在這裡觸發 Python 的機制，將斷線玩家從多數決清單中剔除
-  };
+    // 🛡️ 防禦：跳轉中無視舊房間的離開事件
+    if (isJumping) return; 
 
-  return selfId;
+    myPeers.delete(peerId);
+    if (!isRoomFull) {
+      window.appendLog(`[系統] 玩家 ${peerId.substring(0, 6)} 離開。目前 ${myPeers.size + 1}/${MAX_PLAYERS} 人`, 'system');
+    }
+  };
+  
+  isJoiningRoom = false;
+}
+
+function jumpToNextRoom(appId) {
+  if (isRoomFull || isJumping) return; 
+  isJumping = true; 
+  
+  // 同步斷開舊房間，徹底斬斷 WebRTC 連線
+  if (room) {
+    room.leave();
+    room = null;
+  }
+  myPeers.clear();
+  
+  currentRoomIdx++;
+  setTimeout(() => searchAndJoinRoom(appId), 300);
 }
 
 export function sendToNetwork(jsonStr) {
-  if (!rawAction) {
-    console.error("[JS 網路層] 網路尚未初始化！");
-    return;
-  }
-  console.log(`[JS 網路層] 收到 Python 指令，準備廣播封包...`);
+  if (!rawAction || isJumping) return;
   rawAction.send(jsonStr);
 }
 
