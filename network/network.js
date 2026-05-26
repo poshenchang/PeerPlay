@@ -31,8 +31,38 @@ function searchAndJoinRoom(appId) {
   room = joinRoom({ 
     appId: appId,
     relayConfig: { urls: ['wss://broker.emqx.io:8084/mqtt', 'wss://broker.hivemq.com:8884/mqtt'] },
-    rtcConfig: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
+    rtcConfig: { iceServers: [
+      {
+        urls: "stun:stun1.l.google.com:19302",
+      },
+      {
+        urls: "stun:stun.relay.metered.ca:80",
+      },
+      {
+        urls: "turn:global.relay.metered.ca:80",
+        username: "04e809e8efce89e0b9ab6e97",
+        credential: "EJc5HOWbi8M1bjne",
+      },
+      {
+        urls: "turn:global.relay.metered.ca:80?transport=tcp",
+        username: "04e809e8efce89e0b9ab6e97",
+        credential: "EJc5HOWbi8M1bjne",
+      },
+      {
+        urls: "turn:global.relay.metered.ca:443",
+        username: "04e809e8efce89e0b9ab6e97",
+        credential: "EJc5HOWbi8M1bjne",
+      },
+      {
+        urls: "turns:global.relay.metered.ca:443?transport=tcp",
+        username: "04e809e8efce89e0b9ab6e97",
+        credential: "EJc5HOWbi8M1bjne",
+      },
+      ],
+    }
   }, roomId);
+
+  
 
   rawAction = room.makeAction('rawJsonPayload');
   rawAction.onMessage = (jsonStr, { peerId }) => {
