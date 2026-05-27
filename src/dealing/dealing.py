@@ -1,5 +1,5 @@
 import random
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 from ecdsa.ellipticcurve import Point
 from consensus import ConsensusModule
 from network import (
@@ -38,12 +38,12 @@ class DealingModule:
     """
     def __init__(self, consensus: ConsensusModule) -> None:
         self.consensus = consensus
-        self.pid: int = None                # The order pid in order
-        self.prev_player_id: str = None     # Used for receive()
+        self.pid: Optional[int] = None                # The order pid in order
+        self.prev_player_id: Optional[str] = None     # Used for receive()
         self.hand: List[int] = []           # The hand dealt
         self._order: List[int] = []         # The order for this deal
         self._points: List[Point] = []      # encrypted
-        self._skey: int = None              # for shuffle, per deck
+        self._skey: Optional[int] = None              # for shuffle, per deck
         self._tkeys: List[int] = []         # for tag, per card
         # A list of played but not revealed (cards, nonce)
         self._played_queue: Dict[int, bytes] = {}
@@ -58,6 +58,8 @@ class DealingModule:
         await self._tag()
         await self._detag(hand_size)
         await self._decrypt_hand(hand_size)
+        if self.pid is None:
+            raise DealingError("PID not initialized during dealing")
         return (self.pid, self.hand)
 
     def play_card(self, card: int) -> None:
@@ -71,6 +73,8 @@ class DealingModule:
 
     def reveal_card(self, card: int) -> None:
         nonce = self._played_queue.get(card)
+        if nonce is None:
+            raise PlayCardError(f"Cannot reveal card {card}: no commitment found.")
         self._reveal_played_card(card, nonce)
         return
 
@@ -111,6 +115,8 @@ class DealingModule:
         return
 
     def _pass_points(self, msg_type: str) -> None:
+        if self.pid is None:
+            raise DealingError("PID not initialized")
         n_player = len(self.consensus.node.player_list)
         next_pid = (self.pid + 1) % n_player
         self.consensus.node.broadcast({
@@ -121,6 +127,8 @@ class DealingModule:
         return
 
     async def _listen_pass(self, msg_type: str) -> None:
+        if self.pid is None or self.prev_player_id is None:
+            raise DealingError("PID or prev_player_id not initialized")
         # TODO: from prev player or all players?
         while True:
             raw_msgs: List[RawMessage] = await self.consensus.node.consume_messages(
@@ -155,6 +163,8 @@ class DealingModule:
         self._points = raw_msgs[0].payload["points"]
 
     async def _encrypt_shuffle(self, deck: List[int]) -> None:
+        if self._skey is None:
+            raise DealingError("skey not initialized")
         if self.pid == 0:
             self._points = [map_to_curve(card) for card in deck]
         else:
@@ -168,6 +178,8 @@ class DealingModule:
         return
 
     async def _tag(self):
+        if self._skey is None:
+            raise DealingError("skey not initialized")
         if self.pid == 0:
             await self._listen_pass(MSG_TYPE_SHUFFLE)
         else:
@@ -181,6 +193,8 @@ class DealingModule:
         return
 
     async def _detag(self, hand_size: int):
+        if self.pid is None:
+            raise DealingError("PID not initialized")
         if self.pid == 0:
             await self._listen_pass(MSG_TYPE_TAG)
         else:
@@ -199,6 +213,8 @@ class DealingModule:
         return
 
     async def _decrypt_hand(self, hand_size: int):
+        if self.pid is None:
+            raise DealingError("PID not initialized")
         # TODO: last player also attend in consensus?
         if self.pid != len(self.consensus.node.player_list) - 1:
             await self._listen_finaldeal()
