@@ -90,15 +90,17 @@ def hash_value(data: Any) -> str:
     return hashlib.sha256(serialize(data)).hexdigest()
 
 
-def hash_concat(action: Any, nonce: bytes) -> str:
+def hash_concat(action: Any, nonce: bytes, key: int|None = None) -> str:
     """
     Return SHA-256 hex-digest of  serialize(action) || nonce.
 
     This is the canonical hash used by the Commitment module so that the
     same function can be called independently on every peer for verification.
     """
-    action_bytes = serialize(action)
-    return hashlib.sha256(action_bytes + nonce).hexdigest()
+    payload = serialize(action) + nonce
+    if key is not None:
+        payload = payload + serialize(key)
+    return hashlib.sha256(payload).hexdigest()
 
 # ---------------------------------------------------------------------------
 # Random & Nonces

@@ -30,15 +30,15 @@ class PlayCardError(Exception):
     Raised when play card cannot complete
     """
 
-
 class DealingModule:
     """
     Example usage: 
         1. Initalize `dm = DealingModule(consensus)`
         2. Every player calls `pid, hand = dm.deal()`
-        3. To play a card `dm.play_card(card)`
-        4. To reveal a card `dm.reveal_card(card)`
-        5. To get cards `dm.get_cards(enemy_pid, expect_count)`
+        3. To play a card (commit) `commit_id = dm.play_card(card)`
+        4. To listen commits `dm.get_commit(enemy_pid, expect_count)`
+        5. To reveal a card `dm.reveal_card(commit_id)`
+        6. To get cards `dm.get_cards(enemy_pid, expect_count)`
     """
     def __init__(self, consensus: ConsensusModule) -> None:
         self.consensus = consensus
@@ -49,13 +49,24 @@ class DealingModule:
         self._points: List[Point] = []      # encrypted
         self._skey: int = None              # for shuffle, per deck
         self._tkeys: List[int] = []         # for tag, per card
-        # A list of played but not revealed (cards, nonce)
-        self._played_queue: Dict[int, bytes] = {}
+        self._commit_count: int = 0         # the commit_id for receive side
+        # A list of played but not revealed (commit_id, (card, nonce))
+        self._played_queue: Dict[int, Tuple[int, bytes]] = {}
         # A nested dict for received but not verified commits
-        #     (player_id, (commit_id, message))
-        self._commit_queue: Dict[str, Dict[int, RawMessage]] = {}
+        #     (player_id, (commit_id, hash))
+        self._commit_queue: Dict[str, Dict[int, str]] = {}
 
     def deal(self, deck: List[int], hand_size: int) -> Tuple[int, List[int]]:
+        """
+        Decide an universal agreed order between all players in the same network node.
+        The position in the order is returned as the first argument `pid`.
+        Deal `hand_size` cards from `deck` following the above order.
+            1st pass: encyprt with per deck key and shuffle
+            2nd pass: decrypt 1st pass and encrypt with per card key
+            3rd pass: decrypt 2nd pass for others
+        Broadcast the final one layer encrypted deck in the end of 3rd pass.
+        Each player decrypts the last one layer and return its `pid` and `hand`.
+        """
         self._init_pid()
         self._generate_keys(len(deck))
         self._encrypt_shuffle(deck)
@@ -64,24 +75,50 @@ class DealingModule:
         self._decrypt_hand(hand_size)
         return (self.pid, self.hand)
 
-    def play_card(self, card: int) -> None:
+    def play_card(self, card: int) -> int:
+        """
+        Commit `card`, broadcast the hash of this action to other players.
+        Returns an `commit_id` for this commit, used when reveal.
+        Note that `commit_id` is only unique per player,
+        i.e. two players may have the same `commit_id`.
+        """
+        commit_id = self._commit_count
         nonce = self._commit_played_card(card)
-        self._played_queue[card] = nonce
-        return
+        self._played_queue[commit_id] = (card, nonce)
+        return commit_id
 
     def get_commit(self, pid: int, expect_count: int) -> None:
+        """
+        Listen to other player's commit (specified by `pid`).
+        Block until `expect_count` commits received,
+        or raise error if timeout.
+        """
         commit_msgs = self._listen_commit(pid, expect_count)
+        for msg in commit_msgs:
+            player_id = msg.from_player
+            commit_id = msg.payload["commit_id"]
+            self._commit_queue.setdefault(player_id, {})[commit_id] = msg.payload["hash"]
         return
 
-    def reveal_card(self, card: int) -> None:
-        nonce = self._played_queue.get(card)
-        self._reveal_played_card(card, nonce)
+    def reveal_card(self, commit_id: int) -> None:
+        """
+        Reveal the earlier commit specified by `commit_id` returned by `play_card()`.
+        Broadcast the actual card to other players.
+        """
+        card, nonce = self._played_queue.pop(commit_id)
+        self._reveal_played_card(card, nonce, commit_id)
         return
 
     def get_cards(self, pid: int, expect_count: int) -> List[int]:
-        commit_msgs = self._listen_commit(pid, expect_count)
+        """
+        Returns the verified cards played by `pid`.
+        Listens to other player's reveal (specified by `pid`),
+        then verify the player's reveal against its commit.
+        Should call `get_commit()` for that player first in order to verify.
+        Raise error if failed to get reveal or verification fails.
+        """
         reveal_msgs = self._listen_reveal(pid, expect_count)
-        cards = self._verify_played_cards(commit_msgs, reveal_msgs)
+        cards = self._verify_played_cards(reveal_msgs)
         return cards
 
     def _init_pid(self) -> None:
@@ -213,13 +250,18 @@ class DealingModule:
 
     def _commit_played_card(self, card: int) -> bytes:
         # TODO: commit: hash(action | nonce | tkey)
-        # TODO: add commit id
-        nonce = self.consensus.commitment.commit(card)
+        nonce = self.consensus.commitment.commit(
+            action=card, commit_id=self._commit_count
+        )
+        self._commit_count += 1
         return nonce
 
-    def _reveal_played_card(self, card: int, nonce: bytes) -> None:
+    def _reveal_played_card(self, card: int, nonce: bytes,
+                            commit_id: int) -> None:
         # TODO: reveal: card, nonce, tkey
-        self.consensus.commitment.reveal(card, nonce)
+        self.consensus.commitment.reveal(
+            action=card, nonce=nonce, commit_id=commit_id
+        )
 
     def _listen_commit(self, pid: int, expect_count: int) -> List[RawMessage]:
         node = self.consensus.node
@@ -231,7 +273,7 @@ class DealingModule:
         )
         if len(commit_msgs) != expect_count:
             raise PlayCardError(
-                f"play_card: Got {len(commit_msgs)} commits, "
+                f"_listen_commit: Got {len(commit_msgs)} commits, "
                 f"expect: {expect_count}"
             )
         return commit_msgs
@@ -246,32 +288,32 @@ class DealingModule:
         )
         if len(reveal_msgs) != expect_count:
             raise PlayCardError(
-                f"play_card: Got {len(reveal_msgs)} commits, "
+                f"_listen_reveal: Got {len(reveal_msgs)} reveal, "
                 f"expect: {expect_count}"
             )
         return reveal_msgs
 
-    def _verify_played_cards(self, commit_msgs: List[RawMessage],
-                             reveal_msgs: List[RawMessage]) -> List[int]:
+    def _verify_played_cards(self, reveal_msgs: List[RawMessage]) -> List[int]:
         # TODO: verify: card, nonce, tkey[i]
         #   (1) hash(card | nonce | tkey[i]) == commit
         #   (2) encrypt_point(map_to_curve(card), tkey[i]) == _points
 
-        # TODO: currently index by player id, but multiple message sent by same player
-        # Map player_id -> hash from commit
-        peer_commits: Dict[str, str] = {
-            msg.from_player: msg.payload["hash"] for msg in commit_msgs
-        }
         verified_actions: List[int] = []
         for msg in reveal_msgs:
             player_id = msg.from_player
             recv_action = msg.payload["action"]
             recv_nonce = bytes.fromhex(msg.payload["nonce"])
-            expected_hash = peer_commits[player_id]
-            if not self.consensus.commitment.verify(recv_action,
-                                                    recv_nonce,
-                                                    expected_hash):
+            commit_id = msg.payload["commit_id"]
+            player_commit = self._commit_queue.get(player_id, {})
+            expected_hash = player_commit.get(commit_id)
+            if expected_hash is None:
                 raise PlayCardError(
+                    f"_verify_played_cards: no commit from "
+                    f"player: '{player_id}', commit id: '{commit_id}'"
+                )
+            if not self.consensus.commitment.verify(
+                recv_action, recv_nonce, expected_hash
+            ): raise PlayCardError(
                     f"_verify_played_cards: player '{player_id}' revealed "
                     f"an action that does not match its commit"
                 )

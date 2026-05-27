@@ -87,7 +87,8 @@ class CommitmentModule:
     # Public API
     # ------------------------------------------------------------------
 
-    def commit(self, action: Any) -> bytes:
+    def commit(self, action: Any, key: int|None = None,
+               commit_id: int|None = None) -> bytes:
         """
         Commit to *action* without revealing it.
 
@@ -110,18 +111,21 @@ class CommitmentModule:
             32 random bytes.  **Keep secret until reveal phase.**
         """
         nonce: bytes = gen_nonce(32)
-        hash_val: str = hash_concat(action, nonce)
+        hash_val: str = hash_concat(action, nonce, key)
 
         payload: Dict[str, Any] = {
             "type": MSG_TYPE_COMMIT,
             "player": self.node.player_id,
             "hash": hash_val,
         }
+        if commit_id is not None:
+            payload["commit_id"] = commit_id
         self.node.broadcast(payload)
 
         return nonce
 
-    def reveal(self, action: Any, nonce: bytes) -> None:
+    def reveal(self, action: Any, nonce: bytes, key: int|None = None,
+               commit_id: int|None = None) -> None:
         """
         Reveal *action* and *nonce* so peers can verify the earlier commitment.
 
@@ -143,9 +147,14 @@ class CommitmentModule:
             "action": action,
             "nonce": nonce.hex(),   # bytes are not JSON-native; hex-encode
         }
+        if key is not None:
+            payload["key"] = key
+        if commit_id is not None:
+            payload["commit_id"] = commit_id
         self.node.broadcast(payload)
 
-    def verify(self, action: Any, nonce: bytes, hash_val: str) -> bool:
+    def verify(self, action: Any, nonce: bytes,hash_val: str,
+               key: int|None = None) -> bool:
         """
         Check that a peer's revealed ``(action, nonce)`` matches their
         previously broadcast *hash_val*.
@@ -171,4 +180,4 @@ class CommitmentModule:
             exception rather than check a boolean.  (``verify`` itself only
             returns ``False``; callers may raise ``CommitError`` explicitly.)
         """
-        return hash_concat(action, nonce) == hash_val
+        return hash_concat(action, nonce, key) == hash_val
