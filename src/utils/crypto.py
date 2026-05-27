@@ -188,3 +188,11 @@ def map_from_curve(point: Point) -> int:
         return _POINT_TO_CARD[pkey]
         
     raise ValueError("Point cannot be mapped back to a known card integer. It may have been tampered with or not decrypted properly.")
+
+def encrypt_point(point: Point, key: int) -> Point:
+    """Convenience wrapper to encrypt an EC Point using commutative scalar multiplication."""
+    return ec_multiply(point, key)
+
+def decrypt_point(point: Point, key: int) -> Point:
+    """Convenience wrapper to decrypt an EC Point using commutative scalar multiplication."""
+    return ec_multiply(point, ec_mod_inverse(key))

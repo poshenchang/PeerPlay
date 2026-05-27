@@ -10,15 +10,11 @@ from network import (
 )
 from utils.crypto import (
     gen_scalar_keypair,
-    ec_multiply, ec_mod_inverse,
-    map_to_curve, map_from_curve
+    map_to_curve, map_from_curve,
+    encrypt_point, decrypt_point
 )
 
-def encrypt_point(point: Point, key: int) -> Point:
-    return ec_multiply(point, key)
 
-def decrypt_point(point: Point, key: int) -> Point:
-    return ec_multiply(point, ec_mod_inverse(key))
 
 class DealingError(Exception):
     """
