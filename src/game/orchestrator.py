@@ -107,8 +107,8 @@ class Orchestrator:
         self._notify_all("WAITING_FOR_OTHERS")
         
         # 1. Commit and reveal immediately
-        self.dealing.play_card(card)
-        self.dealing.reveal_card(card)
+        commit_id = self.dealing.play_card(card)
+        self.dealing.reveal_card(commit_id)
         
         # 2. Collect enemy cards via dealing module
         n_players = len(self.players)
