@@ -151,6 +151,9 @@ class NetworkNode:
                     seen_from.add(msg.from_player)
                     self.msg_buffers[msg_type].remove(msg)
 
+                    if expected_count is not None and len(collected) >= expected_count:
+                        break
+
             if expected_count is not None and len(collected) >= expected_count:
                 break
 
