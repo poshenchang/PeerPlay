@@ -340,6 +340,8 @@ class SixNimmtGame:
         rows_before = [row[:] for row in self.rows]
 
         self._consume_local_card(player.name, card)
+        if self.players[player.name].hand_count > 0:
+            self.players[player.name].hand_count -= 1
 
         fitting = self.possible_rows_for_card(card)
         if fitting:
@@ -390,11 +392,7 @@ class SixNimmtGame:
 
     # --------------------------------------------------------------- end state
     def is_game_over(self) -> bool:
-        if not self._initialized:
-            return False
-        if not self.track_hands:
-            return False
-        return all(len(p.hand) == 0 for p in self.players.values())
+        return self._initialized and all(p.hand_count == 0 for p in self.players.values())
 
     def finalize_scores(self) -> Dict[str, int]:
         return self.get_scores()
@@ -403,41 +401,3 @@ class SixNimmtGame:
         scores = self.get_scores()
         best = min(scores.values())
         return [p for p, s in scores.items() if s == best]
-
-
-# ---------------------------------------------------------------------------
-# Example usage for local testing
-# ---------------------------------------------------------------------------
-if __name__ == "__main__":
-    game = SixNimmtGame(["Alice", "Bob", "Carol", "Dave"], rng=random.Random(42))
-    game.reset(
-        starter_rows=[12, 25, 47, 88],
-        hands={
-            "Alice": [3, 14, 26, 39],
-            "Bob": [4, 15, 27, 40],
-            "Carol": [5, 16, 28, 41],
-            "Dave": [6, 17, 29, 42],
-        },
-    )
-
-    print("Initial public state:")
-    print(game.get_public_state())
-
-    plays = []
-    for pname in game.turn_order:
-        card = game.suggest_play(pname)
-        plays.append(
-            RoundPlay(
-                player=pname,
-                card=card,
-                chosen_row_on_no_fit=game.choose_row_to_take(card),
-            )
-        )
-
-    round_result = game.resolve_round(plays)
-    print("\nRound result:")
-    for p, r in round_result.items():
-        print(p, r)
-
-    print("\nState after round:")
-    print(game.get_public_state())
