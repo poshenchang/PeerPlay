@@ -273,7 +273,6 @@ class SixNimmtGame:
             self.my_hand.remove(card)
         except ValueError as exc:
             raise ValueError(f"Local player {player} does not have card {card} in hand.") from exc
-        self.players[self.my_player_id].hand_count = len(self.my_hand)
 
     # -------------------------------------------------------------- round play
     def apply_verified_round(self, plays: Sequence[RoundPlay]) -> Dict[str, dict]:

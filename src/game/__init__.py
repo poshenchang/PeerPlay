@@ -1,3 +1,4 @@
 from .sixnimmt import SixNimmtGame
+from .orchestrator import Orchestrator
 
-__all__ = ["SixNimmtGame"]
+__all__ = ["SixNimmtGame", "Orchestrator"]

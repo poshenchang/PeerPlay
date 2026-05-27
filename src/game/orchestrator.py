@@ -50,12 +50,12 @@ class Orchestrator:
         deck = list(range(1, 105))
         
         # 1. Consensus on 4 table cards
-        shuffled_deck = self.consensus.global_perm(deck)
+        shuffled_deck = await self.consensus.global_perm(deck)
         table_cards = shuffled_deck[:4]
         remaining_deck = shuffled_deck[4:]
         
         # 2. Deal private hands
-        self.pid, hand = self.dealing.deal(remaining_deck, 10)
+        self.pid, hand = await self.dealing.deal(remaining_deck, 10)
         
         # 3. Reset the engine with these values
         self.engine.reset(
@@ -118,7 +118,7 @@ class Orchestrator:
                 continue
             
             # get_cards blocks until commit and reveal are received and verified
-            cards = self.dealing.get_cards(enemy_pid, 1)
+            cards = await self.dealing.get_cards(enemy_pid, 1)
             enemy_player_id = self.dealing._pid_to_player_id(enemy_pid)
             self.played_cards[enemy_player_id] = cards[0]
             

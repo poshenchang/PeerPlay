@@ -1,14 +1,14 @@
 import random
 from typing import List, Dict, Tuple
 from ecdsa.ellipticcurve import Point
-from ..consensus.consensus import ConsensusModule
-from ..network.network import (
+from consensus import ConsensusModule
+from network import (
     RawMessage,
     MSG_TYPE_SHUFFLE, MSG_TYPE_TAG,
     MSG_TYPE_DETAG, MSG_TYPE_FINALDEAL,
     MSG_TYPE_COMMIT, MSG_TYPE_REVEAL
 )
-from ..utils.crypto import (
+from utils.crypto import (
     gen_scalar_keypair,
     ec_multiply, ec_mod_inverse,
     map_to_curve, map_from_curve
@@ -55,13 +55,13 @@ class DealingModule:
         #     (player_id, (commit_id, message))
         self._commit_queue: Dict[str, Dict[int, RawMessage]] = {}
 
-    def deal(self, deck: List[int], hand_size: int) -> Tuple[int, List[int]]:
-        self._init_pid()
+    async def deal(self, deck: List[int], hand_size: int) -> Tuple[int, List[int]]:
+        await self._init_pid()
         self._generate_keys(len(deck))
-        self._encrypt_shuffle(deck)
-        self._tag()
-        self._detag(hand_size)
-        self._decrypt_hand(hand_size)
+        await self._encrypt_shuffle(deck)
+        await self._tag()
+        await self._detag(hand_size)
+        await self._decrypt_hand(hand_size)
         return (self.pid, self.hand)
 
     def play_card(self, card: int) -> None:
@@ -69,8 +69,8 @@ class DealingModule:
         self._played_queue[card] = nonce
         return
 
-    def get_commit(self, pid: int, expect_count: int) -> None:
-        commit_msgs = self._listen_commit(pid, expect_count)
+    async def get_commit(self, pid: int, expect_count: int) -> None:
+        commit_msgs = await self._listen_commit(pid, expect_count)
         return
 
     def reveal_card(self, card: int) -> None:
@@ -78,15 +78,15 @@ class DealingModule:
         self._reveal_played_card(card, nonce)
         return
 
-    def get_cards(self, pid: int, expect_count: int) -> List[int]:
-        commit_msgs = self._listen_commit(pid, expect_count)
-        reveal_msgs = self._listen_reveal(pid, expect_count)
+    async def get_cards(self, pid: int, expect_count: int) -> List[int]:
+        commit_msgs = await self._listen_commit(pid, expect_count)
+        reveal_msgs = await self._listen_reveal(pid, expect_count)
         cards = self._verify_played_cards(commit_msgs, reveal_msgs)
         return cards
 
-    def _init_pid(self) -> None:
+    async def _init_pid(self) -> None:
         n_player = len(self.consensus.node.player_list)
-        self._order = self.consensus.global_perm(list(range(n_player)))
+        self._order = await self.consensus.global_perm(list(range(n_player)))
         self.pid = self._player_id_to_pid(self.consensus.node.player_id)
         prev_pid = (self.pid - 1) if (self.pid > 0) else (n_player - 1)
         self.prev_player_id = self._pid_to_player_id(prev_pid)
@@ -124,10 +124,10 @@ class DealingModule:
         })
         return
 
-    def _listen_pass(self, msg_type: str) -> None:
+    async def _listen_pass(self, msg_type: str) -> None:
         # TODO: from prev player or all players?
         while True:
-            raw_msgs: List[RawMessage] = self.consensus.node.consume_messages(
+            raw_msgs: List[RawMessage] = await self.consensus.node.consume_messages(
                 msg_type=msg_type,
                 from_players=[self.prev_player_id],
                 expected_count=1
@@ -143,9 +143,9 @@ class DealingModule:
             break
         self._points = raw_msgs[0].payload["points"]
 
-    def _listen_finaldeal(self) -> None:
+    async def _listen_finaldeal(self) -> None:
         peers = self.consensus.node.peers()
-        raw_msgs: List[RawMessage] = self.consensus.node.consume_messages(
+        raw_msgs: List[RawMessage] = await self.consensus.node.consume_messages(
             msg_type=MSG_TYPE_FINALDEAL,
             from_players=peers,
             expected_count=1
@@ -158,11 +158,11 @@ class DealingModule:
         # TODO: use receive to verify?
         self._points = raw_msgs[0].payload["points"]
 
-    def _encrypt_shuffle(self, deck: List[int]) -> None:
+    async def _encrypt_shuffle(self, deck: List[int]) -> None:
         if self.pid == 0:
             self._points = [map_to_curve(card) for card in deck]
         else:
-            self._listen_pass(MSG_TYPE_SHUFFLE)
+            await self._listen_pass(MSG_TYPE_SHUFFLE)
 
         for i in range(len(self._points)):
             self._points[i] = encrypt_point(self._points[i], self._skey)
@@ -171,11 +171,11 @@ class DealingModule:
         self._pass_points(MSG_TYPE_SHUFFLE)
         return
 
-    def _tag(self):
+    async def _tag(self):
         if self.pid == 0:
-            self._listen_pass(MSG_TYPE_SHUFFLE)
+            await self._listen_pass(MSG_TYPE_SHUFFLE)
         else:
-            self._listen_pass(MSG_TYPE_TAG)
+            await self._listen_pass(MSG_TYPE_TAG)
 
         for i in range(len(self._points)):
             self._points[i] = decrypt_point(self._points[i], self._skey)
@@ -184,11 +184,11 @@ class DealingModule:
         self._pass_points(MSG_TYPE_TAG)
         return
 
-    def _detag(self, hand_size: int):
+    async def _detag(self, hand_size: int):
         if self.pid == 0:
-            self._listen_pass(MSG_TYPE_TAG)
+            await self._listen_pass(MSG_TYPE_TAG)
         else:
-            self._listen_pass(MSG_TYPE_DETAG)
+            await self._listen_pass(MSG_TYPE_DETAG)
 
         n_player = len(self.consensus.node.player_list)
         for i in range(n_player * hand_size):
@@ -202,10 +202,10 @@ class DealingModule:
             self._pass_points(MSG_TYPE_DETAG)
         return
 
-    def _decrypt_hand(self, hand_size: int):
+    async def _decrypt_hand(self, hand_size: int):
         # TODO: last player also attend in consensus?
         if self.pid != len(self.consensus.node.player_list) - 1:
-            self._listen_finaldeal()
+            await self._listen_finaldeal()
         for i in range(self.pid * hand_size, (self.pid + 1) * hand_size):
             point = decrypt_point(self._points[i], self._tkeys[i])
             self.hand.append(map_from_curve(point))
@@ -221,10 +221,10 @@ class DealingModule:
         # TODO: reveal: card, nonce, tkey
         self.consensus.commitment.reveal(card, nonce)
 
-    def _listen_commit(self, pid: int, expect_count: int) -> List[RawMessage]:
+    async def _listen_commit(self, pid: int, expect_count: int) -> List[RawMessage]:
         node = self.consensus.node
         from_player_id = self._pid_to_player_id(pid)
-        commit_msgs: List[RawMessage] = node.consume_messages(
+        commit_msgs: List[RawMessage] = await node.consume_messages(
             msg_type=MSG_TYPE_COMMIT,
             from_players=[from_player_id],
             expected_count=expect_count
@@ -236,10 +236,10 @@ class DealingModule:
             )
         return commit_msgs
 
-    def _listen_reveal(self, pid: int, expect_count: int) -> List[RawMessage]:
+    async def _listen_reveal(self, pid: int, expect_count: int) -> List[RawMessage]:
         node = self.consensus.node
         from_player_id = self._pid_to_player_id(pid)
-        reveal_msgs: List[RawMessage] = node.consume_messages(
+        reveal_msgs: List[RawMessage] = await node.consume_messages(
             msg_type=MSG_TYPE_REVEAL,
             from_players=[from_player_id],
             expected_count=expect_count
