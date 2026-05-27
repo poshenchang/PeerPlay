@@ -11,33 +11,29 @@ import js  # 載入 JS 環境
 # Constants
 # ---------------------------------------------------------------------------
 
-MSG_TYPE_VAL: str = "val"       # validation / echo broadcast
-MSG_TYPE_COMMIT: str = "commit" # commitment hash
-MSG_TYPE_REVEAL: str = "reveal" # commitment reveal
-MSG_TYPE_SHUFFLE: str = "shuffle"   # used when dealing
-MSG_TYPE_TAG: str = "tag"           # used when dealing
-MSG_TYPE_DETAG: str = "detag"       # used when dealing
-MSG_TYPE_FINALDEAL: str = "finaldeal" # used when dealing, for verification
+MSG_TYPE_VAL: str = "val"                   # validation / echo broadcast
+MSG_TYPE_COMMIT: str = "commit"             # commitment hash
+MSG_TYPE_REVEAL: str = "reveal"             # commitment reveal
+MSG_TYPE_SHUFFLE: str = "shuffle"           # used when dealing
+MSG_TYPE_TAG: str = "tag"                   # used when dealing
+MSG_TYPE_DETAG: str = "detag"               # used when dealing
+MSG_TYPE_FINALDEAL: str = "finaldeal"       # used when dealing, for verification
 
-DEFAULT_TIMEOUT: float = 10.0   # seconds to wait for peer responses
-POLL_INTERVAL: float = 0.05     # seconds between queue polls
+DEFAULT_TIMEOUT: float = 10.0               # seconds to wait for peer responses
+POLL_INTERVAL: float = 0.05                 # seconds between queue polls
+MAX_LIFETIME: float = 300.0                 # 封包最大存活時間，防止 Memory Leak
 
 # ---------------------------------------------------------------------------
 # Global State for JS Bridge
 # ---------------------------------------------------------------------------
-# 🌟 修正點 2：宣告一個全域變數來儲存目前的網路節點實體，避免動態修改 sys.modules
 global_network_node = None
 
 def receive_from_network(sender_id: str, json_str: str) -> None:
-    """
-    [全域函式] 讓 JS 透過 Pyodide 直接呼叫的入口。
-    必須放在模組最外層，window.pyodide.globals 才能抓到。
-    """
     if global_network_node is not None:
         global_network_node.push_to_queue(sender_id, json_str)
-        js.js_append_log(f"[Python] 收到來自 {sender_id} 的封包！內容: {json_str}")
+        js.appendLog(f"[Python] 收到來自 {sender_id} 的封包！內容: {json_str}")
     else:
-        js.js_append_log("[Python 錯誤] 網路節點尚未初始化，無法接收封包", "error")
+        js.appendLog("[Python 錯誤] 網路節點尚未初始化，無法接收封包", "error")
 
 # ---------------------------------------------------------------------------
 # Data structures
@@ -45,7 +41,6 @@ def receive_from_network(sender_id: str, json_str: str) -> None:
 
 @dataclass
 class RawMessage:
-    """A raw frame as stored in ``msg_buffers``."""
     from_player: str          
     payload: Dict[str, Any]   
     timestamp: float = field(default_factory=time.time)
@@ -67,16 +62,10 @@ class NetworkNode:
         self.player_id: str = player_id
         self.player_list: List[str] = sorted(player_list)
         self.timeout: float = timeout
-        # Tagged queue: messages are grouped by payload["type"].
         self.msg_buffers: Dict[str, List[RawMessage]] = {}
         
-        # 🌟 修正點 3：初始化時將自己綁定到全域變數，供 JS 呼叫口使用
         global global_network_node
         global_network_node = self
-
-    # ------------------------------------------------------------------
-    # JS Bridge (內部寫入)
-    # ------------------------------------------------------------------
 
     def push_to_queue(self, from_player: str, json_str: str) -> None:
         try:
@@ -88,11 +77,8 @@ class NetworkNode:
                 RawMessage(from_player=from_player, payload=payload)
             )
         except Exception as e:
-            js.js_append_log(f"[Python 錯誤] 封包解析失敗: {str(e)}", "error")
+            js.appendLog(f"[Python 錯誤] 封包解析失敗: {str(e)}", "error")
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
     def broadcast(self, payload: Dict[str, Any]) -> None:
         """
         Send *payload* to every peer (all players except ourselves).
@@ -105,7 +91,6 @@ class NetworkNode:
         """
         payload["from"] = self.player_id
         json_str = json.dumps(payload)
-        # 🌟 呼叫綁定在 window 上的 JS 函式
         js.js_send_to_network(json_str)
 
     async def receive(
@@ -185,7 +170,6 @@ class NetworkNode:
                 break
 
             matching: List[RawMessage] = []
-            remaining: List[RawMessage] = []
             val_buffer = self.msg_buffers.get(MSG_TYPE_VAL, [])
 
             for msg in val_buffer:
@@ -198,13 +182,11 @@ class NetworkNode:
 
                 if is_val and same_corr and same_orig and new_voter and known_peer:
                     matching.append(msg)
-                else:
-                    remaining.append(msg) 
 
             for msg in matching:
                 votes[msg.from_player] = msg.payload.get("content")
-
-            self.msg_buffers[MSG_TYPE_VAL] = remaining
+                if msg in self.msg_buffers.get(MSG_TYPE_VAL, []):
+                    self.msg_buffers[MSG_TYPE_VAL].remove(msg)
 
             if not matching:
                 await asyncio.sleep(POLL_INTERVAL) 
@@ -222,7 +204,7 @@ class NetworkNode:
         winner_key, winner_count = counter.most_common(1)[0]
 
         if winner_count < majority_threshold:
-            js.js_append_log(f"[警告] receive({sender!r}): 只有 {winner_count}/{len(self.player_list)} 同意 — 可能有作弊者", "error")
+            js.appendLog(f"[警告] receive({sender!r}): 只有 {winner_count}/{len(self.player_list)} 同意 — 可能有作弊者", "error")
 
         real_msg: Any = next(v for v in votes.values() if _to_key(v) == winner_key)
         return (sender, real_msg)
@@ -263,36 +245,32 @@ class NetworkNode:
         collected: List[RawMessage] = []
         seen_from: set = set()
 
-        # Use remaining-time countdown to avoid time.time() semantics
-        remaining_timeout = timeout
+        deadline = time.time() + timeout
 
-        # Poll only the typed buffer, update that buffer in-place
-        while remaining_timeout > 0:
+        while time.time() < deadline:
             if expected_count is not None and len(collected) >= expected_count:
                 break
 
-            remaining: List[RawMessage] = []
-            typed_buffer = self.msg_buffers.get(msg_type, [])
+            current_time = time.time()
+            
+            self.msg_buffers[msg_type] = [
+                m for m in self.msg_buffers.get(msg_type, [])
+                if current_time - m.timestamp <= MAX_LIFETIME
+            ]
 
-            for msg in typed_buffer:
+            for msg in list(self.msg_buffers.get(msg_type, [])):
                 in_whitelist = msg.from_player in target_set
                 not_seen = msg.from_player not in seen_from
 
                 if in_whitelist and not_seen:
                     collected.append(msg)
                     seen_from.add(msg.from_player)
-                else:
-                    remaining.append(msg)
+                    self.msg_buffers[msg_type].remove(msg)
 
-            # Replace only the typed buffer with leftover messages
-            if remaining:
-                self.msg_buffers[msg_type] = remaining
-            else:
-                # If no remaining messages, ensure empty list to avoid future get default
-                self.msg_buffers[msg_type] = []
+            if expected_count is not None and len(collected) >= expected_count:
+                break
 
             await asyncio.sleep(POLL_INTERVAL)
-            remaining_timeout -= POLL_INTERVAL
 
         return collected
 
@@ -300,5 +278,4 @@ class NetworkNode:
         """Return all players except ourselves."""
         return [p for p in self.player_list if p != self.player_id]
 
-import js
 js.python_receive_from_network = receive_from_network
