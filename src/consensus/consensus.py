@@ -47,8 +47,8 @@ import os
 import random
 from typing import Any, Dict, List
 
-from ..network.network import NetworkNode, MSG_TYPE_COMMIT, MSG_TYPE_REVEAL
-from ..commitment.commitment import CommitmentModule, CommitError
+from network import NetworkNode, MSG_TYPE_COMMIT, MSG_TYPE_REVEAL
+from commitment import CommitmentModule, CommitError
 
 
 # ---------------------------------------------------------------------------
@@ -99,7 +99,7 @@ class ConsensusModule:
     # Public API
     # ------------------------------------------------------------------
 
-    def get_global_seed(self) -> int:
+    async def get_global_seed(self) -> int:
         """
         Run a commit-reveal protocol with all peers and return a shared
         random integer seed that no single player could have predetermined.
@@ -136,7 +136,7 @@ class ConsensusModule:
         nonce: bytes = self.commitment.commit(local_seed)
 
         # ── Step 3: collect all peers' commit frames ─────────────────────
-        commit_msgs = self.node.consume_messages(
+        commit_msgs = await self.node.consume_messages(
             msg_type=MSG_TYPE_COMMIT,
             from_players=peers,
             timeout=self.timeout,
@@ -160,7 +160,7 @@ class ConsensusModule:
         self.commitment.reveal(local_seed, nonce)
 
         # ── Step 5: collect and verify all peers' reveals ────────────────
-        reveal_msgs = self.node.consume_messages(
+        reveal_msgs = await self.node.consume_messages(
             msg_type=MSG_TYPE_REVEAL,
             from_players=peers,
             timeout=self.timeout,
@@ -195,7 +195,7 @@ class ConsensusModule:
         digest: str = hashlib.sha256(str(seed_sum).encode()).hexdigest()
         return int(digest, 16)
 
-    def global_perm(self, items: List[Any]) -> List[Any]:
+    async def global_perm(self, items: List[Any]) -> List[Any]:
         """
         Return a shuffled copy of *items* using a seed that all players
         agreed upon — no player could have chosen the permutation alone.
@@ -224,7 +224,7 @@ class ConsensusModule:
         ConsensusError
             Propagated from :meth:`get_global_seed` if the protocol fails.
         """
-        seed: int = self.get_global_seed()
+        seed: int = await self.get_global_seed()
         rng = random.Random(seed)
         result = list(items)
         rng.shuffle(result)

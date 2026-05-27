@@ -53,8 +53,8 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from ..network.network import NetworkNode, MSG_TYPE_COMMIT, MSG_TYPE_REVEAL
-from ..utils.crypto import hash_concat, gen_nonce
+from network import NetworkNode, MSG_TYPE_COMMIT, MSG_TYPE_REVEAL
+from utils.crypto import hash_concat, gen_nonce
 
 
 # ---------------------------------------------------------------------------
