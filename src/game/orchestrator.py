@@ -2,6 +2,7 @@ import asyncio
 import copy
 from typing import Dict, List, Any, Optional
 from .sixnimmt import SixNimmtGame as LogicEngine, RoundPlay
+from network import MSG_TYPE_READY, MSG_TYPE_CONSENSUS_START
 
 class Orchestrator:
     """
@@ -46,7 +47,48 @@ class Orchestrator:
         self._reset_round_state()
         self.phase = "DEALING"
         self._notify_all("ROUND_STARTED")
-        
+
+        # ── 同步點：等所有人的 Python 都初始化完畢後再開始 ──────────────────
+        # 每 5 秒重新廣播一次 game_ready，讓晚載入的玩家也能收到
+        # 一直等到所有 peers 都回應，或最多等 120 秒
+        peers = self.node.peers()
+        if peers:
+            received_ready: set = set()
+            deadline = asyncio.get_event_loop().time() + 120.0
+            while len(received_ready) < len(peers):
+                if asyncio.get_event_loop().time() >= deadline:
+                    break
+                self.node.broadcast({"type": MSG_TYPE_READY})
+                still_waiting = [p for p in peers if p not in received_ready]
+                msgs = await self.node.consume_messages(
+                    msg_type=MSG_TYPE_READY,
+                    from_players=still_waiting,
+                    timeout=5.0,
+                    expected_count=len(still_waiting),
+                )
+                for m in msgs:
+                    received_ready.add(m.from_player)
+
+        # 第二道同步屏障：所有人確認即將進入 consensus，確保大家同時開始
+        # 同時繼續廣播 game_ready，讓還沒過第一道屏障的人能收到
+        if peers:
+            received_consensus: set = set()
+            deadline2 = asyncio.get_event_loop().time() + 120.0
+            while len(received_consensus) < len(peers):
+                if asyncio.get_event_loop().time() >= deadline2:
+                    break
+                self.node.broadcast({"type": MSG_TYPE_READY})           # 繼續幫晚到的人
+                self.node.broadcast({"type": MSG_TYPE_CONSENSUS_START})
+                still_waiting2 = [p for p in peers if p not in received_consensus]
+                msgs2 = await self.node.consume_messages(
+                    msg_type=MSG_TYPE_CONSENSUS_START,
+                    from_players=still_waiting2,
+                    timeout=5.0,
+                    expected_count=len(still_waiting2),
+                )
+                for m in msgs2:
+                    received_consensus.add(m.from_player)
+
         deck = list(range(1, 105))
         
         # 1. Consensus on 4 table cards
@@ -54,8 +96,12 @@ class Orchestrator:
         table_cards = shuffled_deck[:4]
         remaining_deck = shuffled_deck[4:]
         
-        # 2. Deal private hands
-        self.pid, hand = await self.dealing.deal(remaining_deck, 10)
+        # 2. Deal private hands — only pass the cards we actually need (40 cards)
+        # to keep EC operations to minimum (mental poker encrypts every card)
+        hand_size = 10
+        n_players = len(self.players)
+        needed = remaining_deck[:n_players * hand_size]  # 40 cards instead of 100
+        self.pid, hand = await self.dealing.deal(needed, hand_size)
         
         # 3. Reset the engine with these values
         self.engine.reset(
@@ -69,10 +115,15 @@ class Orchestrator:
 
     def get_game_state(self) -> Dict[str, Any]:
         """Returns the current state for the UI to render."""
-        if not self.engine.is_initialized():
+        initialized = self.engine.is_initialized()
+        print(f"[get_game_state] is_initialized={initialized} phase={self.phase}")
+        if not initialized:
             return {"phase": self.phase}
             
         state = self.engine.get_public_state()
+        print(f"[get_game_state] rows count={len(state.get('rows', []))} rows={state.get('rows')}")
+        # Add both key names so any cached JS version works
+        state["table_rows"] = state["rows"]
         state["my_hand"] = self.engine.get_my_hand()
         state["phase"] = self.phase
         state["waiting_on"] = self.waiting_on_player
@@ -105,19 +156,25 @@ class Orchestrator:
 
         self.played_cards[self.player_id] = card
         self._notify_all("WAITING_FOR_OTHERS")
-        
-        # 1. Commit and reveal immediately
-        commit_id = self.dealing.play_card(card)
-        self.dealing.reveal_card(commit_id)
-        
-        # 2. Collect enemy cards via dealing module
+
         n_players = len(self.players)
-        
+
+        # Step 1: broadcast our commit (hash only, card hidden)
+        commit_id = self.dealing.play_card(card)
+
+        # Step 2: collect every enemy's commit before revealing anything
         for enemy_pid in range(n_players):
             if enemy_pid == self.pid:
                 continue
-            
-            # get_cards blocks until commit and reveal are received and verified
+            await self.dealing.get_commit(enemy_pid, 1)
+
+        # Step 3: reveal our card now that everyone has committed
+        self.dealing.reveal_card(commit_id)
+
+        # Step 4: collect and verify every enemy's reveal
+        for enemy_pid in range(n_players):
+            if enemy_pid == self.pid:
+                continue
             cards = await self.dealing.get_cards(enemy_pid, 1)
             enemy_player_id = self.dealing._pid_to_player_id(enemy_pid)
             self.played_cards[enemy_player_id] = cards[0]
@@ -167,6 +224,7 @@ class Orchestrator:
         # Simulation complete! We have all the RoundPlay objects with chosen rows.
         # Apply them to the real engine to officially advance the game state.
         self.engine.apply_verified_round(self._constructed_plays)
+        self._notify_all("ROUND_RESOLVED")   # 通知 UI 更新牌面（engine 已更新）
         
         self.played_cards = {}
         self.waiting_on_player = None
@@ -174,6 +232,9 @@ class Orchestrator:
         self._temp_engine = None
         self._pending_items = []
         self._constructed_plays = []
+
+        # Wait for the UI's reveal animation (3.5 s) before firing NEXT_TURN
+        await asyncio.sleep(4.0)
         
         if self.engine.is_game_over():
             self.phase = "GAME_OVER"
