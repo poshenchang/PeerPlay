@@ -33,6 +33,7 @@ class Orchestrator:
         self._temp_engine = None
         self._pending_items = []
         self._constructed_plays = []
+        self._row_choice_future: Optional[asyncio.Future] = None
 
     def register_ui_notifier(self, callback_func):
         """Register a callback to notify the UI of events."""
@@ -191,28 +192,39 @@ class Orchestrator:
 
     async def _process_resolving_queue(self):
         """Simulates the round to determine if anyone needs to pick a row."""
+        print(f"[resolve] START pending={[(p,c) for p,c in self._pending_items]}")
         
         while self._pending_items:
             player_id, card = self._pending_items[0]
             
             fits = self._temp_engine.possible_rows_for_card(card)
+            print(f"[resolve] player={player_id} card={card} fits={fits}")
             
             if not fits:
                 self.phase = "WAITING_FOR_ROW_SELECTION"
                 self.waiting_on_player = player_id
                 self.waiting_card = card
                 self._notify_all("ROW_SELECTION_REQUIRED", player=player_id, card=card)
+                print(f"[resolve] ROW_SELECTION_REQUIRED for {player_id} card={card} (local={player_id == self.player_id})")
                 
                 if player_id != self.player_id:
                     # Enemy must choose. Await their broadcast via network.
+                    print(f"[resolve] waiting for enemy {player_id} CHOOSE_ROW...")
                     msgs = await self.node.consume_messages(
                         msg_type="CHOOSE_ROW",
                         from_players=[player_id],
                         expected_count=1
                     )
                     chosen_row = msgs[0].payload["row_index"]
-                    await self._apply_row_choice(chosen_row)
-                return # Yield to wait for UI or network
+                    print(f"[resolve] enemy chose row={chosen_row}")
+                else:
+                    # Local player must choose. Wait for UI to call _handle_choose_row.
+                    print(f"[resolve] waiting for LOCAL player to pick row (Future created)")
+                    self._row_choice_future = asyncio.get_event_loop().create_future()
+                    chosen_row = await self._row_choice_future
+                    self._row_choice_future = None
+                    print(f"[resolve] local player chose row={chosen_row}")
+                await self._apply_row_choice(chosen_row)
                 
             else:
                 # It fits! No row selection needed.
@@ -221,6 +233,7 @@ class Orchestrator:
                 self._constructed_plays.append(play)
                 self._pending_items.pop(0)
 
+        print(f"[resolve] DONE. constructed_plays={[(p.player, p.card) for p in self._constructed_plays]}")
         # Simulation complete! We have all the RoundPlay objects with chosen rows.
         # Apply them to the real engine to officially advance the game state.
         self.engine.apply_verified_round(self._constructed_plays)
@@ -244,6 +257,7 @@ class Orchestrator:
             self._notify_all("NEXT_TURN")
 
     async def _handle_choose_row(self, row_index: int):
+        print(f"[choose_row] called row_index={row_index} phase={self.phase} future_exists={self._row_choice_future is not None}")
         if not (0 <= row_index < 4):
             self._notify_all("ERROR", message="Invalid row index")
             return
@@ -254,7 +268,12 @@ class Orchestrator:
             "row_index": row_index
         })
         
-        await self._apply_row_choice(row_index)
+        # Resolve the future so _process_resolving_queue continues
+        if self._row_choice_future and not self._row_choice_future.done():
+            self._row_choice_future.set_result(row_index)
+            print(f"[choose_row] Future resolved with row={row_index}")
+        else:
+            print(f"[choose_row] WARNING: future is None or already done! future={self._row_choice_future}")
 
     async def _apply_row_choice(self, row_index: int):
         player_id, card = self._pending_items.pop(0)
@@ -265,4 +284,4 @@ class Orchestrator:
         self._constructed_plays.append(play)
         
         self.phase = "RESOLVING"
-        await self._process_resolving_queue()
+        # Do NOT call _process_resolving_queue here — the outer while loop continues naturally

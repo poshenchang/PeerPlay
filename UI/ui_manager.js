@@ -215,8 +215,9 @@ window.disableRowSelection = function() {
 function _rowClickHandler(e) {
   const wrap = e.currentTarget;
   const rowIdx = parseInt(wrap.dataset.row);
+  const cb = _rowSelectCallback;   // save BEFORE disableRowSelection nulls it
   window.disableRowSelection();
-  if (_rowSelectCallback) _rowSelectCallback(rowIdx);
+  if (cb) cb(rowIdx);
 }
 
 
