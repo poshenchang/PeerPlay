@@ -347,6 +347,130 @@ window.clearPlayedZone = function() {
 
 
 // ═════════════════════════════════════════════════════════════════════════════
+//  window.revealAllPlayedStaggered(cards)
+//  cards: { player_id: card_num, ... }
+//  Flips each player's card face-up one by one, sorted by card value ascending.
+// ═════════════════════════════════════════════════════════════════════════════
+window.revealAllPlayedStaggered = function(cards) {
+  const entries = Object.entries(cards).sort((a, b) => a[1] - b[1]);
+  entries.forEach(([player, card], idx) => {
+    setTimeout(() => {
+      const el = document.getElementById(`pcard-${player}`);
+      if (!el) return;
+      el.className = 'card played-card';
+      el.dataset.horns = cardHorns(card);
+      el.innerHTML = `<span class="card-num">${card}</span>
+                      <span class="card-center">🐄</span>
+                      <span class="card-horns">${hornLabel(card)}</span>`;
+    }, idx * 380);
+  });
+};
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  window.animateRoundResolution(plays, newRows, scores, myName, allPlayers)
+//  plays: [{player, card, target_row, action, score_added}] sorted by card asc
+//  Animates each card landing in its row, then renders the final board state.
+// ═════════════════════════════════════════════════════════════════════════════
+window.animateRoundResolution = function(plays, newRows, scores, myName, allPlayers) {
+  const STEP_MS = 650;  // delay between each card being placed
+
+  // Step 1: rebuild the rows DOM to the state BEFORE this round
+  // We do this by clearing the rows and re-adding cards from newRows
+  // MINUS the cards that were just placed this round.
+  // Simpler: just animate on top of current state, then do a full render after.
+
+  // Animate each play
+  plays.forEach((play, idx) => {
+    setTimeout(() => {
+      // Glow the played card in played zone
+      const pcardEl = document.getElementById(`pcard-${play.player}`);
+      if (pcardEl) {
+        pcardEl.classList.remove('glowing');
+        void pcardEl.offsetWidth; // force reflow
+        pcardEl.classList.add('glowing');
+      }
+
+      // Flash the target row
+      const rowWrap = document.getElementById(`row-wrap-${play.target_row}`);
+      if (rowWrap) {
+        rowWrap.classList.remove('flash-place', 'flash-take');
+        void rowWrap.offsetWidth;
+        rowWrap.classList.add(play.action === 'took_row' ? 'flash-take' : 'flash-place');
+        rowWrap.addEventListener('animationend', () => {
+          rowWrap.classList.remove('flash-place', 'flash-take');
+        }, { once: true });
+      }
+
+      // If it's the last play, do the full board render after a short delay
+      if (idx === plays.length - 1) {
+        setTimeout(() => {
+          window.renderGamePage(JSON.stringify({
+            scores,
+            table_rows:  newRows,
+            my_hand:     [], // hand is re-fetched on NEXT_TURN; keep empty for now
+            my_name:     myName,
+            all_players: allPlayers,
+          }));
+          updateScoreBoard(scores, true);
+          window.clearPlayedZone();
+        }, 450);
+      }
+    }, idx * STEP_MS);
+  });
+
+  // Fallback: if plays is empty, render immediately
+  if (!plays.length) {
+    window.renderGamePage(JSON.stringify({
+      scores, table_rows: newRows, my_hand: [], my_name: myName, all_players: allPlayers,
+    }));
+    updateScoreBoard(scores, true);
+    window.clearPlayedZone();
+  }
+};
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  window.showGameOverScreen(scores, myName)
+//  Shows the game-over overlay with ranked final scores.
+// ═════════════════════════════════════════════════════════════════════════════
+window.showGameOverScreen = function(scores, myName) {
+  const ranked = Object.entries(scores).sort((a, b) => a[1] - b[1]);
+  const podium = document.getElementById('go-podium');
+  const title  = document.getElementById('go-title');
+  if (!podium) return;
+
+  const medals = ['🥇', '🥈', '🥉', '4️⃣'];
+  const myScore = scores[myName];
+  const myRank  = ranked.findIndex(([n]) => n === myName);
+
+  if (myRank === 0) {
+    title.textContent = '🎉 你贏了！';
+  } else if (myRank === ranked.length - 1) {
+    title.textContent = '😢 你輸了...';
+  } else {
+    title.textContent = `🏁 第 ${myRank + 1} 名`;
+  }
+
+  podium.innerHTML = '';
+  ranked.forEach(([name, score], i) => {
+    const row = document.createElement('div');
+    const isWinner = i === 0;
+    const isLoser  = i === ranked.length - 1;
+    const isMe     = name === myName;
+    row.className  = `go-row${isWinner ? ' winner' : ''}${isLoser ? ' loser' : ''}`;
+    row.innerHTML  =
+      `<span class="go-rank">${medals[i] || (i + 1)}</span>` +
+      `<span class="go-name${isMe ? ' is-me' : ''}">${name.substring(0, 16)}${isMe ? ' (你)' : ''}</span>` +
+      `<span class="go-score">${score} 🐂</span>`;
+    podium.appendChild(row);
+  });
+
+  document.getElementById('gameover-overlay').classList.add('visible');
+};
+
+
+// ═════════════════════════════════════════════════════════════════════════════
 //  window.showRoundResult(roundResultJson)
 //  JSON: { plays:[{player, card, action, score_added}], scores_after:{} }
 //  action: 'placed' | 'took_row'

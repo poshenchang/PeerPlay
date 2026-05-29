@@ -236,8 +236,19 @@ class Orchestrator:
         print(f"[resolve] DONE. constructed_plays={[(p.player, p.card) for p in self._constructed_plays]}")
         # Simulation complete! We have all the RoundPlay objects with chosen rows.
         # Apply them to the real engine to officially advance the game state.
-        self.engine.apply_verified_round(self._constructed_plays)
-        self._notify_all("ROUND_RESOLVED")   # 通知 UI 更新牌面（engine 已更新）
+        round_result = self.engine.apply_verified_round(self._constructed_plays)
+        # Build per-play data for UI animation (sorted ascending by card value)
+        plays_data = []
+        for play in sorted(self._constructed_plays, key=lambda p: p.card):
+            r = round_result.get(play.player, {})
+            plays_data.append({
+                "player": play.player,
+                "card": play.card,
+                "target_row": r.get("target_row", 0),
+                "action": r.get("action", "placed"),
+                "score_added": r.get("score_added", 0),
+            })
+        self._notify_all("ROUND_RESOLVED", plays=plays_data, scores=self.engine.get_scores())
         
         self.played_cards = {}
         self.waiting_on_player = None
