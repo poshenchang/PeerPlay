@@ -1,6 +1,5 @@
 import random
 from typing import List, Dict, Tuple, Optional
-from ecdsa.ellipticcurve import Point
 from consensus import ConsensusModule
 from network import (
     RawMessage,
@@ -9,22 +8,21 @@ from network import (
     MSG_TYPE_COMMIT, MSG_TYPE_REVEAL
 )
 from utils.crypto import (
+    Point,
     gen_scalar_keypair,
     map_to_curve, map_from_curve,
-    encrypt_point, decrypt_point,
-    GENERATOR, ORDER
+    encrypt_point, decrypt_point
 )
-from ecdsa import SECP256k1 as _CURVE
 
 
 def _point_to_json(pt: Point) -> dict:
     """Serialize an EC Point to a JSON-safe dict."""
-    return {"x": pt.x(), "y": pt.y()}
+    return {"scalar": pt.scalar}
 
 
 def _json_to_point(d: dict) -> Point:
     """Deserialize an EC Point from a JSON dict."""
-    return Point(_CURVE.curve, d["x"], d["y"])
+    return Point(d["scalar"])
 
 class DealingError(Exception):
     """

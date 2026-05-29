@@ -6,65 +6,29 @@ Shared cryptographic helpers used across PeerPlay modules.
 Purpose
 ~~~~~~~
 Provides primitives for deterministic hashing, random number generation,
-and Commutative Encryption (Mental Poker) using Elliptic Curve Cryptography.
+and commutative encryption for the mental poker protocol.
 
 Protocol
 ~~~~~~~~
-Mental Poker requires Commutative Encryption where cards can be encrypted
+Mental Poker requires commutative encryption where cards can be encrypted
 and decrypted in any sequence by multiple peers:
 C = k_B * (k_A * M) = k_A * (k_B * M)
-
-::
-
-    --- encryption phase ---
-    Alice                               Bob
-      |  k_A, _ = gen_scalar_keypair()    |
-      |  point = map_to_curve(card)       |
-      |  enc_A = ec_multiply(point, k_A)  |
-      |  broadcast(enc_A)               → |  k_B, _ = gen_scalar_keypair()
-      |                                   |  enc_AB = ec_multiply(enc_A, k_B)
-      |                                   |  broadcast(enc_AB)
-      
-    --- decryption phase ---
-      |  inv_A = ec_mod_inverse(k_A)      |
-      |  dec_A = ec_multiply(enc_AB,inv_A)|
-      |  broadcast(dec_A)               → |  inv_B = ec_mod_inverse(k_B)
-      |                                   |  dec_AB = ec_multiply(dec_A,inv_B)
-      |                                   |  card = map_from_curve(dec_AB)
 
 Security properties
 ~~~~~~~~~~~~~~~~~~~
 * **Commutativity**: EC scalar multiplication allows multiple keys to be applied and removed in any order.
 * **Deterministic**: Hashing is deterministically serialized (sorted JSON) across differing environments.
 * **Collision Resistance**: SHA-256 provides strict binding for commitments.
-
-Usage example
-~~~~~~~~~~~~~
-::
-
-    from utils.crypto import gen_scalar_keypair, map_to_curve, ec_multiply, map_from_curve, ec_mod_inverse
-
-    k, P = gen_scalar_keypair()
-    card = 12
-
-    # ── Encrypt ──
-    encoded = map_to_curve(card)
-    encrypted = ec_multiply(encoded, k)
-
-    # ── Decrypt ──
-    decrypted = ec_multiply(encrypted, ec_mod_inverse(k))
-    recovered_card = map_from_curve(decrypted)
 """
 
 import hashlib
 import json
-import secrets
 import random
-from typing import Any, Tuple
+import secrets
+from dataclasses import dataclass
+from typing import Any, Optional, Tuple
 
-from ecdsa import SECP256k1
-from ecdsa.ellipticcurve import Point
-from ecdsa.util import randrange
+from cryptography.hazmat.primitives.asymmetric import ec
 
 
 # ---------------------------------------------------------------------------
@@ -120,81 +84,178 @@ def get_random_with_seed(seed: int) -> random.Random:
 # Mental Poker ECC Primitives
 # ---------------------------------------------------------------------------
 
-CURVE = SECP256k1.curve
-GENERATOR = SECP256k1.generator
-ORDER = SECP256k1.order
+CURVE = ec.SECP256K1()
+ORDER = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
 
-_CARD_TO_POINT = {}
-_POINT_TO_CARD = {}
+_P = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F
+_A = 0
+_G_X = 55066263022277343669578718895168534326250603453777594175500187360389116729240
+_G_Y = 32670510020758816978083085130507043184471273380659243275938904335757337460376
+
+
+@dataclass(frozen=True)
+class Point:
+    """Lightweight affine point wrapper backed by a subgroup scalar."""
+
+    scalar: int
+
+    def x(self) -> int:
+        return _resolve_coordinates(self.scalar)[0]
+
+    def y(self) -> int:
+        return _resolve_coordinates(self.scalar)[1]
+
+
+_CARD_TO_POINT: dict[int, Point] = {}
+_POINT_TO_CARD: dict[str, int] = {}
+_SCALAR_TO_COORDS: dict[int, Tuple[int, int]] = {1: (_G_X, _G_Y)}
+
+
+def _affine_add(
+    p1: Optional[Tuple[int, int]],
+    p2: Optional[Tuple[int, int]],
+) -> Optional[Tuple[int, int]]:
+    if p1 is None:
+        return p2
+    if p2 is None:
+        return p1
+
+    x1, y1 = p1
+    x2, y2 = p2
+
+    if x1 == x2:
+        if (y1 + y2) % _P == 0:
+            return None
+        return _affine_double(p1)
+
+    slope = ((y2 - y1) * pow((x2 - x1) % _P, -1, _P)) % _P
+    x3 = (slope * slope - x1 - x2) % _P
+    y3 = (slope * (x1 - x3) - y1) % _P
+    return x3, y3
+
+
+def _affine_double(point: Optional[Tuple[int, int]]) -> Optional[Tuple[int, int]]:
+    if point is None:
+        return None
+
+    x1, y1 = point
+    if y1 == 0:
+        return None
+
+    slope = ((3 * x1 * x1 + _A) * pow((2 * y1) % _P, -1, _P)) % _P
+    x3 = (slope * slope - 2 * x1) % _P
+    y3 = (slope * (x1 - x3) - y1) % _P
+    return x3, y3
+
+
+def _scalar_to_coords(scalar: int) -> Tuple[int, int]:
+    scalar %= ORDER
+    if scalar == 0:
+        raise ValueError("Point at infinity cannot be converted to coordinates")
+
+    cached = _SCALAR_TO_COORDS.get(scalar)
+    if cached is not None:
+        return cached
+
+    result: Optional[Tuple[int, int]] = None
+    addend: Optional[Tuple[int, int]] = (_G_X, _G_Y)
+    remaining = scalar
+
+    while remaining:
+        if remaining & 1:
+            result = _affine_add(result, addend)
+        addend = _affine_double(addend)
+        remaining >>= 1
+
+    if result is None:
+        raise ValueError("Failed to derive curve coordinates")
+
+    _SCALAR_TO_COORDS[scalar] = result
+    return result
+
+
+def _resolve_coordinates(scalar: int) -> Tuple[int, int]:
+    scalar %= ORDER
+    coords = _SCALAR_TO_COORDS.get(scalar)
+    if coords is not None:
+        return coords
+    return _scalar_to_coords(scalar)
+
 
 def point_to_key(point: Point) -> str:
-    """Convert an EC Point to a unique uncompressed string key for dictionary storage."""
+    """Convert an EC point to a unique key for dictionary storage."""
     return f"{point.x()}:{point.y()}"
 
-def _init_card_points(max_cards: int = 150):
-    """Precompute curve points for the deck to avoid Discrete Logarithm Problem brute forcing."""
-    for i in range(1, max_cards + 1):
-        pt = i * GENERATOR
-        _CARD_TO_POINT[i] = pt
-        _POINT_TO_CARD[point_to_key(pt)] = i
+
+def _init_card_points(max_cards: int = 150) -> None:
+    """Precompute curve points for the deck using the generator subgroup."""
+    current: Optional[Tuple[int, int]] = None
+    generator = (_G_X, _G_Y)
+
+    for value in range(1, max_cards + 1):
+        if value == 1:
+            current = generator
+        else:
+            current = _affine_add(current, generator)
+
+        if current is None:
+            raise ValueError("Failed to initialize card curve points")
+
+        _SCALAR_TO_COORDS[value] = current
+        point = Point(value)
+        _CARD_TO_POINT[value] = point
+        _POINT_TO_CARD[point_to_key(point)] = value
+
 
 _init_card_points()
 
-def gen_scalar_keypair() -> Tuple[int, Point]:
-    """
-    Generate a scalar private key and corresponding public point 
-    for commutative encryption (Mental Poker).
 
-    Returns
-    -------
-    private_scalar : int
-        The secret key used for multiplier encryptions.
-    public_point : Point
-        The mapped public point.
-    """
-    private_scalar = randrange(ORDER)
-    public_point = private_scalar * GENERATOR
-    return private_scalar, public_point
+def gen_scalar_keypair() -> Tuple[int, Point]:
+    """Generate a scalar private key and corresponding public point."""
+    private_key = ec.generate_private_key(CURVE)
+    private_scalar = private_key.private_numbers().private_value
+    return private_scalar, Point(private_scalar)
+
 
 def ec_mod_inverse(scalar: int) -> int:
-    """
-    Return the modular inverse of a scalar against the curve order.
-    Used for decryption: (k * (k^-1)) % ORDER == 1.
-    """
+    """Return the modular inverse of a scalar against the curve order."""
+    scalar %= ORDER
+    if scalar == 0:
+        raise ZeroDivisionError("Cannot invert zero modulo the curve order")
     return pow(scalar, -1, ORDER)
 
+
 def ec_multiply(point: Point, scalar: int) -> Point:
-    """
-    Multiply an EC point by a scalar.
-    This serves as both encrypt (point * k) and decrypt (point * k^-1).
-    """
-    return scalar * point
+    """Multiply an EC point by a scalar using subgroup arithmetic."""
+    return Point((point.scalar * scalar) % ORDER)
+
 
 def map_to_curve(value: int) -> Point:
-    """
-    Map a small integer value (like a card ID) to an EC point using the precomputed table.
-    """
+    """Map a small integer value, such as a card ID, to an EC point."""
     if value not in _CARD_TO_POINT:
-        # Fallback for unexpected sizes, dynamically cache it
-        pt = value * GENERATOR
-        _CARD_TO_POINT[value] = pt
-        _POINT_TO_CARD[point_to_key(pt)] = value
+        point = Point(value)
+        _CARD_TO_POINT[value] = point
+        _POINT_TO_CARD[point_to_key(point)] = value
     return _CARD_TO_POINT[value]
 
+
 def map_from_curve(point: Point) -> int:
-    """
-    Map a point back to an integer value using the precomputed O(1) loopup table.
-    """
-    pkey = point_to_key(point)
-    if pkey in _POINT_TO_CARD:
-        return _POINT_TO_CARD[pkey]
-        
-    raise ValueError("Point cannot be mapped back to a known card integer. It may have been tampered with or not decrypted properly.")
+    """Map a point back to an integer value using the lookup table."""
+    point_key = point_to_key(point)
+    if point_key in _POINT_TO_CARD:
+        return _POINT_TO_CARD[point_key]
+
+    raise ValueError(
+        "Point cannot be mapped back to a known card integer. It may have been "
+        "tampered with or not decrypted properly."
+    )
+
 
 def encrypt_point(point: Point, key: int) -> Point:
-    """Convenience wrapper to encrypt an EC Point using commutative scalar multiplication."""
+    """Convenience wrapper to encrypt an EC point using scalar multiplication."""
     return ec_multiply(point, key)
 
+
 def decrypt_point(point: Point, key: int) -> Point:
-    """Convenience wrapper to decrypt an EC Point using commutative scalar multiplication."""
+    """Convenience wrapper to decrypt an EC point using scalar multiplication."""
     return ec_multiply(point, ec_mod_inverse(key))
