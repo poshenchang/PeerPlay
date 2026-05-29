@@ -559,6 +559,67 @@ class TestOrchestratorFlow(unittest.TestCase):
         error_events = [e for e in events if e['type'] == 'ERROR']
         self.assertTrue(len(error_events) > 0)
 
+    def test_row_selection_required_then_choose_row_resolves(self):
+        """
+        When local player's card has no valid row, ROW_SELECTION_REQUIRED fires,
+        and after CHOOSE_ROW the round resolves to ROUND_RESOLVED then NEXT_TURN.
+        No double-apply should occur.
+        """
+        # table_cards=[10,20,30,40], my_hand=[1,...] so card 1 fits no row
+        # enemy cards will be 12,22,32 which all fit
+        orch, node = self._make_orchestrator(
+            my_hand=[1, 11, 21, 31, 41, 51, 61, 71, 81, 91],
+            table_cards=[10, 20, 30, 40],
+        )
+        events = []
+        orch.register_ui_notifier(lambda ev: events.append(ev))
+
+        async def run_scenario():
+            # Start playing card 1 (no valid row → ROW_SELECTION_REQUIRED)
+            play_task = asyncio.ensure_future(
+                orch.receive_input({'action': 'PLAY_CARD', 'card': 1})
+            )
+            # Wait for ROW_SELECTION_REQUIRED event (poll up to 2s)
+            for _ in range(40):
+                await asyncio.sleep(0.05)
+                types = [e['type'] for e in events]
+                if 'ROW_SELECTION_REQUIRED' in types:
+                    break
+            else:
+                raise AssertionError("ROW_SELECTION_REQUIRED never fired; events: " + str([e['type'] for e in events]))
+
+            # Send CHOOSE_ROW (row 0 = takes the 10-row)
+            await orch.receive_input({'action': 'CHOOSE_ROW', 'row_index': 0})
+
+            # Wait for ROUND_RESOLVED
+            for _ in range(40):
+                await asyncio.sleep(0.05)
+                types = [e['type'] for e in events]
+                if 'ROUND_RESOLVED' in types:
+                    break
+            else:
+                raise AssertionError("ROUND_RESOLVED never fired; events: " + str([e['type'] for e in events]))
+
+            # Cancel the play_task if still running (it sleeps 4s before NEXT_TURN)
+            play_task.cancel()
+            try:
+                await play_task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+        run(run_scenario())
+
+        types = [e['type'] for e in events]
+        self.assertIn('ROW_SELECTION_REQUIRED', types,
+            "ROW_SELECTION_REQUIRED not fired; events: " + str(types))
+        self.assertIn('ROUND_RESOLVED', types,
+            "ROUND_RESOLVED not fired after CHOOSE_ROW; events: " + str(types))
+
+        # Ensure no double-apply (ROUND_RESOLVED fired exactly once)
+        resolved_count = types.count('ROUND_RESOLVED')
+        self.assertEqual(resolved_count, 1,
+            f"ROUND_RESOLVED fired {resolved_count} times — double-apply bug!")
+
 
 # =============================================================================
 # 6. network.py JS bridge: receive_from_network
