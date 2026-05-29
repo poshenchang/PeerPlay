@@ -507,9 +507,9 @@
       });
       window._pyodide = pyodide;
 
-      // 2. Install ecdsa via micropip
-      updateLoading('正在安裝加密模組 (ecdsa)...');
-      await pyodide.loadPackage('micropip');
+      // 2. Install ecdsa and cryptography via micropip
+      updateLoading('正在安裝加密模組 (ecdsa, cryptography)...');
+      await pyodide.loadPackage(['micropip', 'cryptography']);
       const micropip = pyodide.pyimport('micropip');
       await micropip.install('ecdsa');
 
