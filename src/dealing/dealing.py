@@ -1,5 +1,6 @@
 import random
 from typing import List, Dict, Tuple, Optional
+from ecdsa.ellipticcurve import Point
 from consensus import ConsensusModule
 from network import (
     RawMessage,
@@ -8,21 +9,22 @@ from network import (
     MSG_TYPE_COMMIT, MSG_TYPE_REVEAL
 )
 from utils.crypto import (
-    Point,
     gen_scalar_keypair,
     map_to_curve, map_from_curve,
-    encrypt_point, decrypt_point
+    encrypt_point, decrypt_point,
+    GENERATOR, ORDER
 )
+from ecdsa import SECP256k1 as _CURVE
 
 
 def _point_to_json(pt: Point) -> dict:
     """Serialize an EC Point to a JSON-safe dict."""
-    return {"scalar": pt.scalar}
+    return {"x": pt.x(), "y": pt.y()}
 
 
 def _json_to_point(d: dict) -> Point:
     """Deserialize an EC Point from a JSON dict."""
-    return Point(d["scalar"])
+    return Point(_CURVE.curve, d["x"], d["y"])
 
 class DealingError(Exception):
     """
@@ -89,7 +91,7 @@ class DealingModule:
         i.e. two players may have the same `commit_id`.
         """
         commit_id = self._commit_count
-        nonce = self._commit_played_card(card)  # also increments _commit_count
+        nonce = self._commit_played_card(card)
         self._played_queue[commit_id] = (card, nonce)
         return commit_id
 
@@ -102,7 +104,7 @@ class DealingModule:
         commit_msgs = await self._listen_commit(pid, expect_count)
         for msg in commit_msgs:
             player_id = msg.from_player
-            commit_id = int(msg.payload["commit_id"])  # normalize to int
+            commit_id = msg.payload["commit_id"]
             self._commit_queue.setdefault(player_id, {})[commit_id] = msg.payload["hash"]
         return
 
@@ -323,7 +325,7 @@ class DealingModule:
             player_id = msg.from_player
             recv_action = msg.payload["action"]
             recv_nonce = bytes.fromhex(msg.payload["nonce"])
-            commit_id = int(msg.payload["commit_id"])  # JSON may deserialize as str or int
+            commit_id = msg.payload["commit_id"]
             player_commit = self._commit_queue.get(player_id, {})
             expected_hash = player_commit.get(commit_id)
             if expected_hash is None:
