@@ -89,7 +89,7 @@ class DealingModule:
         i.e. two players may have the same `commit_id`.
         """
         commit_id = self._commit_count
-        nonce = self._commit_played_card(card)
+        nonce = self._commit_played_card(card)  # also increments _commit_count
         self._played_queue[commit_id] = (card, nonce)
         return commit_id
 
@@ -102,7 +102,7 @@ class DealingModule:
         commit_msgs = await self._listen_commit(pid, expect_count)
         for msg in commit_msgs:
             player_id = msg.from_player
-            commit_id = msg.payload["commit_id"]
+            commit_id = int(msg.payload["commit_id"])  # normalize to int
             self._commit_queue.setdefault(player_id, {})[commit_id] = msg.payload["hash"]
         return
 
@@ -323,7 +323,7 @@ class DealingModule:
             player_id = msg.from_player
             recv_action = msg.payload["action"]
             recv_nonce = bytes.fromhex(msg.payload["nonce"])
-            commit_id = msg.payload["commit_id"]
+            commit_id = int(msg.payload["commit_id"])  # JSON may deserialize as str or int
             player_commit = self._commit_queue.get(player_id, {})
             expected_hash = player_commit.get(commit_id)
             if expected_hash is None:

@@ -370,60 +370,75 @@ window.revealAllPlayedStaggered = function(cards) {
 // ═════════════════════════════════════════════════════════════════════════════
 //  window.animateRoundResolution(plays, newRows, scores, myName, allPlayers)
 //  plays: [{player, card, target_row, action, score_added}] sorted by card asc
-//  Animates each card landing in its row, then renders the final board state.
+//  Progressively adds each card into its row DOM with drop-in animation.
+//  Does NOT call renderGamePage — NEXT_TURN will do a clean full render.
 // ═════════════════════════════════════════════════════════════════════════════
 window.animateRoundResolution = function(plays, newRows, scores, myName, allPlayers) {
-  const STEP_MS = 650;  // delay between each card being placed
+  const STEP_MS = 700;  // delay between each card being placed
 
-  // Step 1: rebuild the rows DOM to the state BEFORE this round
-  // We do this by clearing the rows and re-adding cards from newRows
-  // MINUS the cards that were just placed this round.
-  // Simpler: just animate on top of current state, then do a full render after.
+  console.log('[animateRoundResolution] plays:', JSON.stringify(plays), 'count:', plays.length);
 
-  // Animate each play
   plays.forEach((play, idx) => {
     setTimeout(() => {
-      // Glow the played card in played zone
+      console.log(`[animate] step ${idx}: player=${play.player} card=${play.card} target_row=${play.target_row} action=${play.action}`);
+      // 1. Highlight the played-zone card for this player
       const pcardEl = document.getElementById(`pcard-${play.player}`);
       if (pcardEl) {
         pcardEl.classList.remove('glowing');
-        void pcardEl.offsetWidth; // force reflow
+        void pcardEl.offsetWidth;
         pcardEl.classList.add('glowing');
+      } else {
+        console.warn(`[animate] pcard-${play.player} NOT FOUND in DOM`);
       }
 
-      // Flash the target row
+      // 2. Mutate the row DOM directly
+      const rowEl   = document.getElementById(`row-${play.target_row}`);
       const rowWrap = document.getElementById(`row-wrap-${play.target_row}`);
-      if (rowWrap) {
-        rowWrap.classList.remove('flash-place', 'flash-take');
-        void rowWrap.offsetWidth;
-        rowWrap.classList.add(play.action === 'took_row' ? 'flash-take' : 'flash-place');
-        rowWrap.addEventListener('animationend', () => {
-          rowWrap.classList.remove('flash-place', 'flash-take');
-        }, { once: true });
-      }
 
-      // If it's the last play, do the full board render after a short delay
+      if (rowEl) {
+        if (play.action === 'took_row') {
+          // Clear the row (player takes all cards), add new card on top
+          rowEl.innerHTML = '';
+          if (rowWrap) {
+            rowWrap.classList.remove('flash-place', 'flash-take');
+            void rowWrap.offsetWidth;
+            rowWrap.classList.add('flash-take');
+          }
+        } else {
+          if (rowWrap) {
+            rowWrap.classList.remove('flash-place', 'flash-take');
+            void rowWrap.offsetWidth;
+            rowWrap.classList.add('flash-place');
+          }
+        }
+
+        // Append the played card with drop-in animation
+        const cardEl = createCardDOM(play.card);
+        cardEl.classList.add('drop-in');
+        rowEl.appendChild(cardEl);
+
+        // Update horn count label
+        const hornEl = document.getElementById(`row-horns-${play.target_row}`);
+        if (hornEl) {
+          const rowCards = Array.from(rowEl.querySelectorAll('.card')).map(el => parseInt(el.dataset.num));
+          const hornSum  = rowCards.reduce((s, n) => s + cardHorns(n), 0);
+          hornEl.textContent = rowCards.length ? `${hornSum}🐂` : '';
+        }
+      } else {
+        console.warn(`[animate] row-${play.target_row} NOT FOUND in DOM`);
+      }
       if (idx === plays.length - 1) {
         setTimeout(() => {
-          window.renderGamePage(JSON.stringify({
-            scores,
-            table_rows:  newRows,
-            my_hand:     [], // hand is re-fetched on NEXT_TURN; keep empty for now
-            my_name:     myName,
-            all_players: allPlayers,
-          }));
           updateScoreBoard(scores, true);
           window.clearPlayedZone();
-        }, 450);
+        }, 500);
       }
     }, idx * STEP_MS);
   });
 
-  // Fallback: if plays is empty, render immediately
+  // Fallback: if plays is empty just clear zone
   if (!plays.length) {
-    window.renderGamePage(JSON.stringify({
-      scores, table_rows: newRows, my_hand: [], my_name: myName, all_players: allPlayers,
-    }));
+    console.warn('[animateRoundResolution] plays is EMPTY — nothing to animate');
     updateScoreBoard(scores, true);
     window.clearPlayedZone();
   }
