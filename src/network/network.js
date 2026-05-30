@@ -11,7 +11,11 @@
  * - 說明：房間滿 4 人時觸發。此時前端應切換至「遊戲開始」畫面並初始化 Python。
  * - 參數：players 是包含 4 個字串的陣列 (自己與其他 3 人的 ID)。
  * * 4. window.onRoomDisband()
- * - 說明：房間因有人斷線且超時未歸而解散時觸發。前端需「鎖定 UI」、「清理 Python 狀態」並顯示重新排隊畫面。
+ * - 說明：房間因有人斷線且超時未歸而解散時觸發（僅限配對中或 Python 尚未載入完成時）。
+ * * 5. window.onRoomJoinFailed(reason: string)
+ * - 說明：指定加入特定房間失敗時觸發（例如房間已滿）。
+ * * 6. window.onGameInterrupted() <-- [新增]
+ * - 說明：遊戲正式開始後（Python已就緒）有人斷線觸發。預設行為會直接重新整理網頁。
  * ============================================================================
  */
 
@@ -25,12 +29,15 @@ let rawAction;
 let sysAction;
 let pythonCoreReady = false;
 const MAX_PLAYERS = 4;
+
+// 狀態控制
 let currentRoomIdx = 1;
 let myPeers = new Set();
 let isRoomFull = false;
 let isJoiningRoom = false;
 let isJumping = false;
-
+let isRandomMode = true; 
+let activeAppId = null;  
 
 // ============================================================================
 // [公開介面 Public API] - 給前端或 Python 呼叫的方法
@@ -38,14 +45,24 @@ let isJumping = false;
 
 /**
  * @public
- * @description 初始化網路連線，開始尋找並加入房間。
+ * @description 初始化網路連線，開始尋找/加入房間。
  * @param {string} appId - 應用程式的唯一識別碼
+ * @param {string} [targetRoomId=null] - 若傳入特定房號，則進入「指定房間模式」；若為空，則進入「隨機配對模式」。
  * @returns {string} 回傳本機玩家的專屬 ID (selfId)
  */
-export function initNetwork(appId) {
-  // 將發送函數掛載到全域，方便 Python 或前端直接呼叫
+export function initNetwork(appId, targetRoomId = null) {
   window.js_send_to_network = sendToNetwork;
-  searchAndJoinRoom(appId);
+  activeAppId = appId;
+  
+  if (targetRoomId) {
+    isRandomMode = false;
+    searchAndJoinRoom(targetRoomId);
+  } else {
+    isRandomMode = true;
+    currentRoomIdx = 1; 
+    searchAndJoinRoom(`room_${currentRoomIdx}`);
+  }
+  
   return selfId;
 }
 
@@ -61,7 +78,7 @@ export function sendToNetwork(jsonStr) {
 
 /**
  * @public
- * @description 標記 Python 核心已完全就緒。前端必須在 Python 載入完成後呼叫此方法，網路層才會開始把資料往 Python 送。
+ * @description 標記 Python 核心已完全就緒。這代表遊戲「正式開始」。
  */
 export function setPythonReady() {
   pythonCoreReady = true;
@@ -76,19 +93,19 @@ export function setPythonReady() {
  * @internal
  * @description 尋找並加入 Trystero MQTT 房間的核心邏輯
  */
-function searchAndJoinRoom(appId) {
+function searchAndJoinRoom(roomId) {
   if (isJoiningRoom) return; 
   isJoiningRoom = true;
   isJumping = false;
   
   myPeers.clear();
   isRoomFull = false;
+  pythonCoreReady = false; // 每次進新房間重置狀態
 
-  const roomId = `room_${currentRoomIdx}`;
   if(window.appendLog) window.appendLog(`[系統] 嘗試進入房間 ${roomId}...`, 'system');
 
   room = joinRoom({ 
-    appId: appId,
+    appId: activeAppId,
     relayConfig: { urls: ['wss://broker.emqx.io:8084/mqtt', 'wss://broker.hivemq.com:8884/mqtt'] },
     rtcConfig: { iceServers: [
       { urls: "stun:stun1.l.google.com:19302" },
@@ -131,8 +148,16 @@ function searchAndJoinRoom(appId) {
   sysAction.onMessage = (msg, { peerId }) => {
     if (isJumping) return; 
     if (msg.type === 'REJECT' && !isRoomFull) {
-      if(window.appendLog) window.appendLog(`[系統] 此房間已經客滿，自動跳轉至下一間...`, 'error');
-      jumpToNextRoom(appId);
+      if (isRandomMode) {
+        if(window.appendLog) window.appendLog(`[系統] 此房間已經客滿，自動跳轉至下一間...`, 'error');
+        jumpToNextRoom();
+      } else {
+        if(window.appendLog) window.appendLog(`[系統] 指定房間 ${roomId} 已客滿或遊戲已開始！`, 'error');
+        if(window.onRoomJoinFailed) window.onRoomJoinFailed('ROOM_FULL');
+        
+        isJumping = true;
+        if (room) { room.leave(); room = null; }
+      }
     }
   };
 
@@ -143,7 +168,6 @@ function searchAndJoinRoom(appId) {
   room.onPeerJoin = peerId => {
     if (isJumping) return; 
 
-    // 房間已滿則拒絕新玩家
     if (isRoomFull) {
       sysAction.send({ type: 'REJECT' }, { target: peerId });
       return; 
@@ -152,11 +176,9 @@ function searchAndJoinRoom(appId) {
     myPeers.add(peerId);
     if(window.appendLog) window.appendLog(`[系統] 玩家 ${peerId.substring(0, 6)} 加入。目前 ${myPeers.size + 1}/${MAX_PLAYERS} 人`, 'system');
     
-    // 檢查是否滿員
     if (myPeers.size + 1 === MAX_PLAYERS) {
       isRoomFull = true;
 
-      // 若在斷線 3 秒寬限期內補滿人數，解除解散危機
       if (disbandTimeout) {
         clearTimeout(disbandTimeout);
         disbandTimeout = null;
@@ -166,7 +188,6 @@ function searchAndJoinRoom(appId) {
           window.onRoomFull(selfId, [selfId, ...Array.from(myPeers)]);
         }
       } else {
-        // 正常首次滿員
         if(window.appendLog) window.appendLog(`[系統] 房間已滿 4 人！準備啟動應用程式...`, 'system');
         if (window.onRoomFull) {
           window.onRoomFull(selfId, [selfId, ...Array.from(myPeers)]);
@@ -180,18 +201,41 @@ function searchAndJoinRoom(appId) {
     myPeers.delete(peerId);
 
     if (isRoomFull) {
-      // 滿員狀態下有人斷線，啟動 3 秒重連寬限期
+      // ==========================================
+      // [核心修改] 判斷遊戲是否已正式開始
+      // ==========================================
+      if (pythonCoreReady) {
+        // 遊戲已經開始，不給寬限期，直接強制全體重整
+        if (window.appendLog) window.appendLog(`[系統] 致命錯誤：玩家 ${peerId.substring(0, 6)} 於遊戲中斷線，強制終止遊戲！`, 'error');
+        
+        isJumping = true; // 上鎖，停止後續封包處理
+        if (room) { room.leave(); room = null; }
+
+        if (window.onGameInterrupted) {
+          window.onGameInterrupted();
+        } else {
+          // 如果前端沒有實作這個方法，預設行為就是直接重整網頁
+          setTimeout(() => {
+            alert('有玩家於遊戲中斷線，遊戲無法繼續，將重新整理頁面。');
+            window.location.reload();
+          }, 500); 
+        }
+        return;
+      }
+
+      // 尚未正式開始 (例如在剛滿員但 Python 還在載入的等待期) -> 給予 3 秒寬限期
       isRoomFull = false; 
       if(window.appendLog) window.appendLog(`[系統] 玩家 ${peerId.substring(0, 6)} 網路閃斷，給予 3 秒重連時間...`, 'error');
 
       if (!disbandTimeout) {
         disbandTimeout = setTimeout(() => {
           if(window.appendLog) window.appendLog(`[系統] 玩家超時未歸，強制解散！`, 'error');
-          disbandRoom(appId);
+          disbandRoom();
           disbandTimeout = null;
         }, 3000);
       }
     } else {
+      // 房間本來就沒滿，單純有人進出
       if(window.appendLog) window.appendLog(`[系統] 玩家 ${peerId.substring(0, 6)} 離開。目前 ${myPeers.size + 1}/${MAX_PLAYERS} 人`, 'system');
     }
   };
@@ -201,36 +245,36 @@ function searchAndJoinRoom(appId) {
 
 /**
  * @internal
- * @description 跳轉至下一個房間 (當前房間滿員時自動觸發)
  */
-function jumpToNextRoom(appId) {
+function jumpToNextRoom() {
   if (isRoomFull || isJumping) return; 
-  isJumping = true; // 上鎖，停止處理封包
+  isJumping = true; 
   
   if (room) { room.leave(); room = null; }
   myPeers.clear();
   
   currentRoomIdx++;
-  setTimeout(() => searchAndJoinRoom(appId), 300);
+  setTimeout(() => searchAndJoinRoom(`room_${currentRoomIdx}`), 300);
 }
 
 /**
  * @internal
- * @description 房間強制解散流程 (當斷線超時觸發)
  */
-function disbandRoom(appId) {
-  isJumping = true; // 上鎖，停止處理封包
+function disbandRoom() {
+  isJumping = true; 
   
   if (room) { room.leave(); room = null; }
   myPeers.clear();
   isRoomFull = false;
 
-  // 通知前端進行 UI 鎖定與清理
   if (window.onRoomDisband) {
     window.onRoomDisband();
   }
 
-  // 重設房間編號並延遲 1.5 秒後重新排隊，讓使用者看清提示訊息
-  currentRoomIdx = 1;
-  setTimeout(() => searchAndJoinRoom(appId), 1500);
+  if (isRandomMode) {
+    currentRoomIdx = 1;
+    setTimeout(() => searchAndJoinRoom(`room_${currentRoomIdx}`), 1500);
+  } else {
+    if(window.appendLog) window.appendLog(`[系統] 指定房間已解散，請重新建立或加入房間。`, 'system');
+  }
 }
