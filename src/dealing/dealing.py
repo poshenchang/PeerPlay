@@ -12,7 +12,6 @@ from utils.crypto import (
     gen_scalar_keypair,
     map_to_curve, map_from_curve,
     encrypt_point, decrypt_point,
-    GENERATOR, ORDER
 )
 from ecdsa import SECP256k1 as _CURVE
 
@@ -48,16 +47,19 @@ class DealingModule:
     """
     def __init__(self, consensus: ConsensusModule) -> None:
         self.consensus = consensus
-        self.pid: Optional[int] = None                # The order pid in order
-        self.prev_player_id: Optional[str] = None     # Used for receive()
-        self.hand: List[int] = []           # The hand dealt
+        self.pid: Optional[int] = None              # The order pid in order
+        self.prev_player_id: Optional[str] = None   # Used for receive()
+        self.hand_size: Optional[int] = None        # Number of card player holds
+        self._hand: List[int] = []          # The hand dealt
         self._order: List[int] = []         # The order for this deal
         self._points: List[Point] = []      # encrypted
-        self._skey: Optional[int] = None              # for shuffle, per deck
+        self._skey: Optional[int] = None    # for shuffle, per deck
         self._tkeys: List[int] = []         # for tag, per card
         self._commit_count: int = 0         # the commit_id for receive side
-        # A list of played but not revealed (commit_id, (card, nonce))
-        self._played_queue: Dict[int, Tuple[int, bytes]] = {}
+        # For tkeys, true if used by commit (self) or verify (other)
+        self._used: List[bool] = []
+        # A list of played but not revealed (commit_id, (card, nonce, tkey))
+        self._played_queue: Dict[int, Tuple[int, bytes, int]] = {}
         # A nested dict for received but not verified commits
         #     (player_id, (commit_id, hash))
         self._commit_queue: Dict[str, Dict[int, str]] = {}
@@ -73,6 +75,7 @@ class DealingModule:
         Broadcast the final one layer encrypted deck in the end of 3rd pass.
         Each player decrypts the last one layer and return its `pid` and `hand`.
         """
+        self.hand_size = hand_size
         await self._init_pid()
         self._generate_keys(len(deck))
         await self._encrypt_shuffle(deck)
@@ -81,7 +84,7 @@ class DealingModule:
         await self._decrypt_hand(hand_size)
         if self.pid is None:
             raise DealingError("PID not initialized during dealing")
-        return (self.pid, self.hand)
+        return (self.pid, self._hand)
 
     def play_card(self, card: int) -> int:
         """
@@ -91,8 +94,8 @@ class DealingModule:
         i.e. two players may have the same `commit_id`.
         """
         commit_id = self._commit_count
-        nonce = self._commit_played_card(card)
-        self._played_queue[commit_id] = (card, nonce)
+        nonce, tkey = self._commit_played_card(card)
+        self._played_queue[commit_id] = (card, nonce, tkey)
         return commit_id
 
     async def get_commit(self, pid: int, expect_count: int) -> None:
@@ -113,10 +116,11 @@ class DealingModule:
         Reveal the earlier commit specified by `commit_id` returned by `play_card()`.
         Broadcast the actual card to other players.
         """
-        card, nonce = self._played_queue.pop(commit_id)
-        if nonce is None:
+        stored = self._played_queue.pop(commit_id, None)
+        if stored is None:
             raise PlayCardError(f"Cannot reveal commit {commit_id}: no commitment found.")
-        self._reveal_played_card(card, nonce, commit_id)
+        card, nonce, tkey = stored
+        self._reveal_played_card(card, nonce, commit_id, tkey)
         return
 
     async def get_cards(self, pid: int, expect_count: int) -> List[int]:
@@ -152,6 +156,7 @@ class DealingModule:
         self._tkeys = [
             gen_scalar_keypair()[0] for _ in range(n_cards)
         ]
+        self._used = [False] * n_cards
         return
 
     def _broadcast_points(self, msg_type: str) -> None:
@@ -202,9 +207,8 @@ class DealingModule:
             expected_count=1
         )
         if (len(raw_msgs) != 1):
-            missing = set(peers) - {m.from_player for m in raw_msgs}
             raise DealingError(
-                f"_listen_finaldeal: Missing finaldeal from: {missing}"
+                f"_listen_finaldeal: Finaldeal message error"
             )
         # TODO: use receive to verify?
         self._points = [_json_to_point(p) for p in raw_msgs[0].payload["points"]]
@@ -267,22 +271,21 @@ class DealingModule:
             await self._listen_finaldeal()
         for i in range(self.pid * hand_size, (self.pid + 1) * hand_size):
             point = decrypt_point(self._points[i], self._tkeys[i])
-            self.hand.append(map_from_curve(point))
+            self._hand.append(map_from_curve(point))
         return
 
-    def _commit_played_card(self, card: int) -> bytes:
-        # TODO: commit: hash(action | nonce | tkey)
+    def _commit_played_card(self, card: int) -> Tuple[bytes, int]:
+        tkey = self._get_tkey_by_card(card)
         nonce = self.consensus.commitment.commit(
-            action=card, commit_id=self._commit_count
+            action=card, commit_id=self._commit_count, key=tkey
         )
         self._commit_count += 1
-        return nonce
+        return (nonce, tkey)
 
     def _reveal_played_card(self, card: int, nonce: bytes,
-                            commit_id: int) -> None:
-        # TODO: reveal: card, nonce, tkey
+                            commit_id: int, tkey: int) -> None:
         self.consensus.commitment.reveal(
-            action=card, nonce=nonce, commit_id=commit_id
+            action=card, nonce=nonce, commit_id=commit_id, key=tkey
         )
 
     async def _listen_commit(self, pid: int, expect_count: int) -> List[RawMessage]:
@@ -316,16 +319,13 @@ class DealingModule:
         return reveal_msgs
 
     def _verify_played_cards(self, reveal_msgs: List[RawMessage]) -> List[int]:
-        # TODO: verify: card, nonce, tkey[i]
-        #   (1) hash(card | nonce | tkey[i]) == commit
-        #   (2) encrypt_point(map_to_curve(card), tkey[i]) == _points
-
         verified_actions: List[int] = []
         for msg in reveal_msgs:
             player_id = msg.from_player
             recv_action = msg.payload["action"]
             recv_nonce = bytes.fromhex(msg.payload["nonce"])
             commit_id = msg.payload["commit_id"]
+            tkey = msg.payload["key"]
             player_commit = self._commit_queue.get(player_id, {})
             expected_hash = player_commit.get(commit_id)
             if expected_hash is None:
@@ -334,10 +334,45 @@ class DealingModule:
                     f"player: '{player_id}', commit id: '{commit_id}'"
                 )
             if not self.consensus.commitment.verify(
-                recv_action, recv_nonce, expected_hash
+                recv_action, recv_nonce, expected_hash, key=tkey
             ): raise PlayCardError(
                     f"_verify_played_cards: player '{player_id}' revealed "
                     f"an action that does not match its commit"
                 )
+            if not self.player_has_card(player_id, recv_action, tkey):
+                raise PlayCardError(
+                    f"_verify_played_cards: player '{player_id}' "
+                    f"does not have card {recv_action} in its hand"
+                )
             verified_actions.append(recv_action)
+            self._commit_queue[player_id].pop(commit_id, None)
         return verified_actions
+
+    def player_has_card(self, player_id: str, card: int, tkey: int) -> bool:
+        # verify `card` in points which we dealt to `player_id`
+        pid = self._player_id_to_pid(player_id)
+        expect_point = encrypt_point(map_to_curve(card), tkey)
+        for i in range(pid * self.hand_size, (pid + 1) * self.hand_size):
+            if self._used[i] == True:
+                continue
+            if self._points[i] == expect_point:
+                self._used[i] = True
+                return True
+        return False
+
+    def _get_tkey_by_card(self, card: int) -> int:
+        # Search for the corresponding key used to decrypt `card`
+        # Note that ther might be multiple identical cards in the deck
+        base_idx: int = 0
+        while base_idx < self.hand_size:
+            try:
+                hand_idx = self._hand.index(card, base_idx)
+            except ValueError:
+                raise PlayCardError(f"_get_tkey: card {card} is not in hand")
+            key_idx = self.pid * self.hand_size + hand_idx
+            if self._used[key_idx] == True:
+                base_idx = hand_idx + 1
+                continue
+            self._used[key_idx] = True
+            return self._tkeys[key_idx]
+        raise PlayCardError(f"_get_tkey: card {card} used all its tkeys")
