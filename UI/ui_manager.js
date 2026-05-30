@@ -702,3 +702,25 @@ function _mockOtherPlayersCommit(myCard) {
     }, 1500);
   }, 1000);
 }
+
+// Developer Cheat Tool
+window.onCheatPlayCard = async function() {
+  const commitCard = parseInt(document.getElementById('cheat-commit-card').value);
+  const revealCard = parseInt(document.getElementById('cheat-reveal-card').value);
+  
+  if (!commitCard || !revealCard) return;
+
+  window.switchPlayPhase(false, 'Waiting for other players (Cheat Mode)...');
+  
+  if (window.python_receive_input) {
+    try {
+      window.python_receive_input(JSON.stringify({ 
+        action: 'CHEAT_PLAY_CARD', 
+        commit_card: commitCard, 
+        reveal_card: revealCard 
+      }));
+    } catch(e) {
+      console.error('[UI] python_receive_input error:', e);
+    }
+  }
+}

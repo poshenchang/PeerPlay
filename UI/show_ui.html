@@ -317,6 +317,13 @@
     </div>
   </div>
 
+  <div id="cheat-section" style="background: #331111; border: 1px solid var(--red); padding: 10px; margin-top: 10px; border-radius: 5px; font-size: 0.85rem; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+    <h4 style="color: var(--red); margin-right: 10px;">作弊工具</h4>
+    <label>Commit Card: <input type="number" id="cheat-commit-card" value="10" style="width: 50px; background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 2px 4px;"></label>
+    <label>Reveal Card: <input type="number" id="cheat-reveal-card" value="99" style="width: 50px; background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 2px 4px;"></label>
+    <button onclick="onCheatPlayCard()" style="background: var(--red); color: #fff; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer;">Cheat Play</button>
+  </div>
+
   <div id="hand-section">
     <div class="hand-label">我的手牌</div>
     <div id="my-hand"><span class="empty-hint">尚未發牌</span></div>
@@ -346,6 +353,15 @@
     <div class="overlay-title">房間已解散</div>
     <div class="overlay-subtitle">有玩家斷線，遊戲已中止。</div>
     <div class="overlay-cd" id="disband-cd">重新排隊中...</div>
+  </div>
+</div>
+
+<div id="cheat-overlay" class="overlay">
+  <div class="overlay-card" style="border-color: rgba(231,76,60,.5);">
+    <div class="overlay-icon">🚨</div>
+    <div class="overlay-title">作弊警告！</div>
+    <div class="overlay-subtitle" id="cheat-overlay-msg" style="color: var(--text);"></div>
+    <button onclick="document.getElementById('cheat-overlay').classList.remove('visible')" style="background: var(--red); color: #fff; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; margin-top: 10px;">關閉</button>
   </div>
 </div>
 
@@ -477,6 +493,19 @@
 
     } else if (type === 'ERROR') {
       window.appendLog(`[錯誤] ${ev.message}`, 'error');
+      if (ev.message && ev.message.includes("Caught a cheater!")) {
+        const overlay = document.getElementById('cheat-overlay');
+        const msgEl = document.getElementById('cheat-overlay-msg');
+        if (overlay && msgEl) {
+          msgEl.textContent = ev.message;
+          overlay.classList.add('visible');
+        } else {
+          alert(`🚨 作弊警告！\n\n${ev.message}`);
+        }
+      } else {
+        const statusEl = document.getElementById('status-message');
+        if (statusEl) statusEl.textContent = `錯誤: ${ev.message}`;
+      }
     }
   }
 

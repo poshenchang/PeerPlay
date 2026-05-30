@@ -3,6 +3,7 @@ import copy
 from typing import Dict, List, Any, Optional
 from .sixnimmt import SixNimmtGame as LogicEngine, RoundPlay
 from network import MSG_TYPE_READY, MSG_TYPE_CONSENSUS_START
+from dealing.dealing import PlayCardError
 
 class Orchestrator:
     """
@@ -139,6 +140,8 @@ class Orchestrator:
         
         if self.phase == "WAITING_FOR_CARDS" and action == "PLAY_CARD":
             await self._handle_play_card(action_data.get("card"))
+        elif self.phase == "WAITING_FOR_CARDS" and action == "CHEAT_PLAY_CARD":
+            await self._handle_cheat_play_card(action_data.get("commit_card"), action_data.get("reveal_card"))
         elif self.phase == "WAITING_FOR_ROW_SELECTION" and action == "CHOOSE_ROW":
             if self.player_id == self.waiting_on_player:
                 await self._handle_choose_row(action_data.get("row_index"))
@@ -176,9 +179,65 @@ class Orchestrator:
         for enemy_pid in range(n_players):
             if enemy_pid == self.pid:
                 continue
-            cards = await self.dealing.get_cards(enemy_pid, 1)
-            enemy_player_id = self.dealing._pid_to_player_id(enemy_pid)
-            self.played_cards[enemy_player_id] = cards[0]
+            try:
+                cards = await self.dealing.get_cards(enemy_pid, 1)
+                enemy_player_id = self.dealing._pid_to_player_id(enemy_pid)
+                self.played_cards[enemy_player_id] = cards[0]
+            except PlayCardError as e:
+                self._notify_all("ERROR", message=f"Caught a cheater! {str(e)}")
+                return
+            except Exception as e:
+                self._notify_all("ERROR", message=f"Error verifying cards: {str(e)}")
+                return
+            
+        self.phase = "RESOLVING"
+        self._notify_all("ALL_CARDS_REVEALED", cards=self.played_cards)
+        
+        # 3. Setup resolution simulation
+        self._temp_engine = copy.deepcopy(self.engine)
+        self._pending_items = sorted(self.played_cards.items(), key=lambda x: x[1])
+        self._constructed_plays = []
+        
+        await self._process_resolving_queue()
+
+    async def _handle_cheat_play_card(self, commit_card: int, reveal_card: int):
+        # BYPASS local validation!
+        self.played_cards[self.player_id] = reveal_card
+        self._notify_all("WAITING_FOR_OTHERS")
+
+        n_players = len(self.players)
+
+        # Step 1: broadcast our commit using commit_card
+        commit_id = self.dealing.play_card(commit_card)
+
+        # Step 2: collect every enemy's commit before revealing anything
+        for enemy_pid in range(n_players):
+            if enemy_pid == self.pid:
+                continue
+            await self.dealing.get_commit(enemy_pid, 1)
+
+        # Maliciously modify our dealing queue to reveal a different card!
+        if commit_id in self.dealing._played_queue:
+            _, nonce = self.dealing._played_queue[commit_id]
+            self.dealing._played_queue[commit_id] = (reveal_card, nonce)
+
+        # Step 3: reveal our card now that everyone has committed
+        self.dealing.reveal_card(commit_id)
+
+        # Step 4: collect and verify every enemy's reveal
+        for enemy_pid in range(n_players):
+            if enemy_pid == self.pid:
+                continue
+            try:
+                cards = await self.dealing.get_cards(enemy_pid, 1)
+                enemy_player_id = self.dealing._pid_to_player_id(enemy_pid)
+                self.played_cards[enemy_player_id] = cards[0]
+            except PlayCardError as e:
+                self._notify_all("ERROR", message=f"Caught a cheater! {str(e)}")
+                return
+            except Exception as e:
+                self._notify_all("ERROR", message=f"Error verifying cards: {str(e)}")
+                return
             
         self.phase = "RESOLVING"
         self._notify_all("ALL_CARDS_REVEALED", cards=self.played_cards)
