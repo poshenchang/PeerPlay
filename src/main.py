@@ -41,11 +41,11 @@ def init_game(player_id: str, player_list_json: str) -> None:
     print(f"[Python] Initializing game for player {player_id} with players {player_list}")
     
     # 1. Initialize Network Layer
-    node = NetworkNode(player_id=player_id, player_list=list(player_list))
+    node = NetworkNode(player_id=player_id, player_list=list(player_list), timeout=300.0)
     
     # 2. Initialize Crypto Layers
     commitment = CommitmentModule(node)
-    consensus = ConsensusModule(node, commitment)
+    consensus = ConsensusModule(node, commitment, timeout=60.0)
     dealing = DealingModule(consensus)
     
     # 3. Initialize Game Orchestrator
@@ -64,6 +64,10 @@ async def receive_input(action_data_json: str) -> None:
         
     action_data = json.loads(action_data_json)
     await game_orchestrator.receive_input(action_data)
+
+def receive_input_sync(action_data_json: str) -> None:
+    """Synchronous JS-callable wrapper that schedules receive_input on the event loop."""
+    asyncio.ensure_future(receive_input(action_data_json))
 
 async def start_game() -> None:
     """
@@ -110,7 +114,7 @@ def register_ui_notifier(callback) -> None:
 # so the UI / Trystero layer can easily invoke them.
 # -----------------------------------------------------------------
 js.python_init_game = init_game
-js.python_receive_input = receive_input
+js.python_receive_input = receive_input_sync
 js.python_start_game = start_game
 js.python_get_game_state = get_game_state
 js.python_register_ui_notifier = register_ui_notifier

@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PeerPlay 4 人聊天室</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #0d0d18;
+      color: #dde0f0;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    /* ─── Lobby ─────────────────────────────────────────────── */
+    #lobbyScreen {
+      width: 440px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0;
+    }
+
+    .lobby-title {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #7ba7f5;
+      margin-bottom: 6px;
+    }
+
+    .my-id-badge {
+      font-size: 0.78rem;
+      color: #7090c8;
+      background: #171730;
+      border: 1px solid #2a3060;
+      border-radius: 20px;
+      padding: 3px 14px;
+      margin-bottom: 28px;
+    }
+
+    .counter-wrap {
+      display: flex;
+      align-items: baseline;
+      gap: 4px;
+      margin-bottom: 4px;
+    }
+
+    .counter-num {
+      font-size: 3.4rem;
+      font-weight: 800;
+      color: #7ba7f5;
+      line-height: 1;
+      transition: color 0.3s;
+    }
+
+    .counter-slash {
+      font-size: 1.6rem;
+      color: #444;
+    }
+
+    .counter-max {
+      font-size: 1.6rem;
+      color: #444;
+    }
+
+    .counter-label {
+      font-size: 0.82rem;
+      color: #666;
+      margin-bottom: 18px;
+    }
+
+    .progress-track {
+      width: 300px;
+      height: 6px;
+      background: #1a1a30;
+      border-radius: 6px;
+      overflow: hidden;
+      margin-bottom: 26px;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #3d6ae0, #7ba7f5);
+      border-radius: 6px;
+      width: 25%;
+      transition: width 0.45s cubic-bezier(.4,0,.2,1);
+    }
+
+    /* Player slots */
+    .slots {
+      display: flex;
+      gap: 14px;
+      margin-bottom: 26px;
+    }
+
+    .slot {
+      width: 82px;
+      height: 82px;
+      border-radius: 14px;
+      border: 2px dashed #2a2a48;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: border-color 0.3s, background 0.3s;
+    }
+
+    .slot.empty  { background: transparent; }
+    .slot.me     { border: 2px solid #3d6ae0; background: #161a30; }
+    .slot.filled { border: 2px solid #2d7a4f; background: #141f18; }
+
+    .slot-avatar { font-size: 1.7rem; }
+    .slot-label  { font-size: 0.62rem; color: #666; }
+    .slot.me     .slot-label { color: #7ba7f5; }
+    .slot.filled .slot-label { color: #5abf85; }
+
+    /* System log */
+    #sysLog {
+      width: 100%;
+      height: 130px;
+      background: #0a0a16;
+      border: 1px solid #1e1e38;
+      border-radius: 10px;
+      padding: 10px 12px;
+      overflow-y: auto;
+      font-size: 0.76rem;
+      line-height: 1.7;
+    }
+
+    #sysLog .system { color: #4a78e0; }
+    #sysLog .error  { color: #e05050; }
+
+    /* ─── Chat screen ────────────────────────────────────────── */
+    #chatScreen {
+      width: 480px;
+      height: 92vh;
+      max-height: 680px;
+      background: #111120;
+      border: 1px solid #222238;
+      border-radius: 18px;
+      display: none;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .chat-header {
+      background: #161628;
+      padding: 14px 18px;
+      border-bottom: 1px solid #222238;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .chat-title {
+      flex: 1;
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: #b8c8f0;
+    }
+
+    .avatar-row {
+      display: flex;
+      gap: 6px;
+    }
+
+    .avatar-chip {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.66rem;
+      font-weight: 700;
+      background: #1e2848;
+      border: 2px solid #3d5abf;
+      color: #7ba7f5;
+      cursor: default;
+    }
+
+    .avatar-chip.is-me {
+      background: #162820;
+      border-color: #3d9a60;
+      color: #5abf85;
+    }
+
+    /* Messages */
+    .messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .bubble-wrap {
+      display: flex;
+      flex-direction: column;
+      max-width: 70%;
+    }
+
+    .bubble-wrap.mine   { align-self: flex-end;   align-items: flex-end; }
+    .bubble-wrap.theirs { align-self: flex-start; align-items: flex-start; }
+
+    .bubble-sender { font-size: 0.68rem; color: #778; margin-bottom: 3px; }
+
+    .bubble {
+      padding: 9px 14px;
+      border-radius: 15px;
+      font-size: 0.9rem;
+      line-height: 1.55;
+      word-break: break-word;
+    }
+
+    .mine   .bubble { background: #253a80; color: #d8e4ff; border-bottom-right-radius: 4px; }
+    .theirs .bubble { background: #1c1e32; color: #ccd4f0; border-bottom-left-radius: 4px; }
+
+    .bubble-time { font-size: 0.62rem; color: #4a4a68; margin-top: 3px; }
+
+    .sys-notice {
+      align-self: center;
+      font-size: 0.73rem;
+      color: #4a6abf;
+      background: #12122a;
+      padding: 4px 14px;
+      border-radius: 12px;
+    }
+
+    /* Input bar */
+    .input-bar {
+      display: flex;
+      gap: 10px;
+      padding: 12px 16px;
+      background: #161628;
+      border-top: 1px solid #222238;
+    }
+
+    .input-bar input {
+      flex: 1;
+      background: #0d0d1e;
+      border: 1px solid #252545;
+      border-radius: 10px;
+      color: #dde0f0;
+      padding: 10px 14px;
+      font-size: 0.9rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .input-bar input:focus { border-color: #3d5abf; }
+
+    .input-bar button {
+      background: #2d4abf;
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      padding: 10px 18px;
+      font-size: 0.9rem;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .input-bar button:hover:not(:disabled) { background: #3d5acf; }
+    .input-bar button:disabled { opacity: 0.4; cursor: default; }
+
+    /* ─── Disband overlay ────────────────────────────────────── */
+    #disbandOverlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.78);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 99;
+    }
+
+    .disband-card {
+      background: #161626;
+      border: 1px solid #5a2020;
+      border-radius: 18px;
+      padding: 36px 48px;
+      text-align: center;
+    }
+
+    .disband-icon  { font-size: 2.6rem; margin-bottom: 12px; }
+    .disband-title { font-size: 1.15rem; font-weight: 600; color: #e05050; margin-bottom: 8px; }
+    .disband-sub   { font-size: 0.84rem; color: #778; margin-bottom: 16px; }
+    .disband-cd    { font-size: 2.2rem; font-weight: 800; color: #7ba7f5; }
+
+    /* scrollbar */
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #2a2a48; border-radius: 5px; }
+  </style>
+</head>
+<body>
+
+  <!-- ════════════════ 等待大廳 ════════════════ -->
+  <div id="lobbyScreen">
+    <div class="lobby-title">🎮 PeerPlay 聊天室</div>
+    <div class="my-id-badge" id="myIdBadge">連線中...</div>
+
+    <div class="counter-wrap">
+      <span class="counter-num" id="counterNum">1</span>
+      <span class="counter-slash">/</span>
+      <span class="counter-max">4</span>
+    </div>
+    <div class="counter-label" id="counterLabel">等待其他玩家加入...</div>
+
+    <div class="progress-track">
+      <div class="progress-fill" id="progressFill"></div>
+    </div>
+
+    <div class="slots" id="slots"></div>
+
+    <div id="sysLog"></div>
+  </div>
+
+  <!-- ════════════════ 聊天室 ════════════════ -->
+  <div id="chatScreen">
+    <div class="chat-header">
+      <div class="chat-title">💬 4 人聊天室</div>
+      <div class="avatar-row" id="avatarRow"></div>
+    </div>
+    <div class="messages" id="messages"></div>
+    <div class="input-bar">
+      <input type="text" id="chatInput" placeholder="輸入訊息..." />
+      <button id="sendBtn">傳送</button>
+    </div>
+  </div>
+
+  <!-- ════════════════ 解散提示 ════════════════ -->
+  <div id="disbandOverlay">
+    <div class="disband-card">
+      <div class="disband-icon">⚠️</div>
+      <div class="disband-title">房間已解散</div>
+      <div class="disband-sub">有玩家斷線，重新排隊中...</div>
+      <div class="disband-cd" id="disbandCd">—</div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { initNetwork, sendToNetwork, setPythonReady } from '../src/network/network.js';
+
+    // ── DOM ──────────────────────────────────────────────────────────────────
+    const lobbyScreen   = document.getElementById('lobbyScreen');
+    const chatScreen    = document.getElementById('chatScreen');
+    const disbandOverlay= document.getElementById('disbandOverlay');
+    const counterNum    = document.getElementById('counterNum');
+    const counterLabel  = document.getElementById('counterLabel');
+    const progressFill  = document.getElementById('progressFill');
+    const slotsEl       = document.getElementById('slots');
+    const sysLog        = document.getElementById('sysLog');
+    const messagesEl    = document.getElementById('messages');
+    const avatarRow     = document.getElementById('avatarRow');
+    const chatInput     = document.getElementById('chatInput');
+    const sendBtn       = document.getElementById('sendBtn');
+    const myIdBadge     = document.getElementById('myIdBadge');
+    const disbandCd     = document.getElementById('disbandCd');
+
+    // ── State ────────────────────────────────────────────────────────────────
+    let mySelfId = '';
+    let knownCount = 1;   // 自己 + 已知對方
+
+    // ── Lobby helpers ────────────────────────────────────────────────────────
+    function buildSlots() {
+      slotsEl.innerHTML = '';
+      for (let i = 0; i < 4; i++) {
+        const d = document.createElement('div');
+        d.className = 'slot empty';
+        d.id = `slot-${i}`;
+        d.innerHTML = `<span class="slot-avatar">⬜</span><span class="slot-label">等待中</span>`;
+        slotsEl.appendChild(d);
+      }
+    }
+
+    function fillSlot(index, label, kind) {   // kind: 'me' | 'filled'
+      const s = document.getElementById(`slot-${index}`);
+      if (!s) return;
+      s.className = `slot ${kind}`;
+      s.innerHTML = `<span class="slot-avatar">${kind === 'me' ? '🙋' : '👤'}</span>
+                     <span class="slot-label">${label}</span>`;
+    }
+
+    function setCounter(n) {
+      knownCount = n;
+      counterNum.textContent = n;
+      progressFill.style.width = `${(n / 4) * 100}%`;
+      counterLabel.textContent = n < 4 ? `等待其他玩家加入...` : `房間已滿！`;
+      if (n === 4) counterNum.style.color = '#5abf85';
+    }
+
+    // ── window.appendLog ─────────────────────────────────────────────────────
+    window.appendLog = (msg, type = '') => {
+      // 更新計數器（解析 network.js 的中文 log）
+      const countMatch = msg.match(/目前\s*(\d+)\/4/);
+      if (countMatch) {
+        const n = parseInt(countMatch[1]);
+        setCounter(n);
+        // 把剛加入的 peer 填進下一個空格
+        const peerMatch = msg.match(/玩家\s*(\S{4,8})\s*加入/);
+        if (peerMatch) fillSlot(n - 1, peerMatch[1], 'filled');
+      }
+
+      const div = document.createElement('div');
+      div.textContent = msg;
+      if (type) div.className = type;
+      sysLog.appendChild(div);
+      sysLog.scrollTop = sysLog.scrollHeight;
+    };
+
+    // ── window.onRoomFull ────────────────────────────────────────────────────
+    window.onRoomFull = (selfId, players) => {
+      mySelfId = selfId;
+
+      // 建立頂部頭像列
+      avatarRow.innerHTML = '';
+      players.forEach(id => {
+        const chip = document.createElement('div');
+        chip.className = 'avatar-chip' + (id === selfId ? ' is-me' : '');
+        chip.title = id;
+        chip.textContent = id.substring(0, 2).toUpperCase();
+        avatarRow.appendChild(chip);
+      });
+
+      // 切換畫面
+      lobbyScreen.style.display   = 'none';
+      disbandOverlay.style.display = 'none';
+      chatScreen.style.display    = 'flex';
+
+      addSysNotice('🎉 房間滿員，開始聊天！');
+      chatInput.disabled = false;
+      sendBtn.disabled = false;
+      chatInput.focus();
+    };
+
+    // ── window.onRoomDisband ─────────────────────────────────────────────────
+    window.onRoomDisband = () => {
+      chatInput.disabled = true;
+      sendBtn.disabled = true;
+      disbandOverlay.style.display = 'flex';
+
+      // 倒數動畫（與 network.js 的 1500ms 同步）
+      let t = 1.5;
+      disbandCd.textContent = t.toFixed(1) + 's';
+      const tick = setInterval(() => {
+        t -= 0.1;
+        disbandCd.textContent = t > 0 ? t.toFixed(1) + 's' : '重新排隊中...';
+        if (t <= 0) {
+          clearInterval(tick);
+          // 重置大廳
+          setCounter(1);
+          buildSlots();
+          fillSlot(0, mySelfId.substring(0, 8), 'me');
+          chatScreen.style.display    = 'none';
+          lobbyScreen.style.display   = 'flex';
+          disbandOverlay.style.display = 'none';
+          chatInput.disabled = false;
+          sendBtn.disabled = false;
+        }
+      }, 100);
+    };
+
+    // ── 接收其他玩家的訊息 ────────────────────────────────────────────────────
+    window.python_receive_from_network = (peerId, jsonStr) => {
+      try {
+        const msg = JSON.parse(jsonStr);
+        if (msg.type === 'chat') addBubble(peerId, msg.text, false);
+      } catch {
+        addBubble(peerId, jsonStr, false);
+      }
+    };
+
+    // ── Chat UI helpers ──────────────────────────────────────────────────────
+    function escapeHtml(str) {
+      return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function nowHHMM() {
+      const d = new Date();
+      return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+    }
+
+    function addBubble(senderId, text, isMe) {
+      const wrap = document.createElement('div');
+      wrap.className = `bubble-wrap ${isMe ? 'mine' : 'theirs'}`;
+      wrap.innerHTML = `
+        ${!isMe ? `<div class="bubble-sender">${senderId.substring(0, 10)}</div>` : ''}
+        <div class="bubble">${escapeHtml(text)}</div>
+        <div class="bubble-time">${nowHHMM()}</div>
+      `;
+      messagesEl.appendChild(wrap);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    function addSysNotice(text) {
+      const div = document.createElement('div');
+      div.className = 'sys-notice';
+      div.textContent = text;
+      messagesEl.appendChild(div);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    // ── Send ─────────────────────────────────────────────────────────────────
+    function doSend() {
+      const text = chatInput.value.trim();
+      if (!text) return;
+      sendToNetwork(JSON.stringify({ type: 'chat', text }));
+      addBubble(mySelfId, text, true);
+      chatInput.value = '';
+    }
+
+    sendBtn.addEventListener('click', doSend);
+    chatInput.addEventListener('keypress', e => { if (e.key === 'Enter') doSend(); });
+
+    // ── Boot ─────────────────────────────────────────────────────────────────
+    buildSlots();
+    const selfId = initNetwork('peerplay-chatroom-v1');
+    mySelfId = selfId;
+    myIdBadge.textContent = `我的 ID：${selfId.substring(0, 12)}…`;
+    fillSlot(0, selfId.substring(0, 8), 'me');
+
+    // 純 JS 聊天不需要 Python，立即標記 ready 讓 network.js 轉發收到的封包
+    setPythonReady();
+  </script>
+</body>
+</html>

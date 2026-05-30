@@ -15,7 +15,7 @@
  * ============================================================================
  */
 
-import { joinRoom, selfId } from 'https://esm.run/@trystero-p2p/mqtt';
+import { joinRoom, selfId } from 'https://cdn.jsdelivr.net/npm/@trystero-p2p/mqtt/+esm';
 
 // ============================================================================
 // [內部狀態 Internal State] - 僅供網路層內部使用

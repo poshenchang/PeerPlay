@@ -18,6 +18,8 @@ MSG_TYPE_SHUFFLE: str = "shuffle"           # used when dealing
 MSG_TYPE_TAG: str = "tag"                   # used when dealing
 MSG_TYPE_DETAG: str = "detag"               # used when dealing
 MSG_TYPE_FINALDEAL: str = "finaldeal"       # used when dealing, for verification
+MSG_TYPE_READY: str = "game_ready"          # all players Python loaded, ready to start
+MSG_TYPE_CONSENSUS_START: str = "consensus_start"  # second barrier: all players about to enter consensus
 
 DEFAULT_TIMEOUT: float = 10.0               # seconds to wait for peer responses
 POLL_INTERVAL: float = 0.05                 # seconds between queue polls

@@ -11,8 +11,20 @@ from network import (
 from utils.crypto import (
     gen_scalar_keypair,
     map_to_curve, map_from_curve,
-    encrypt_point, decrypt_point
+    encrypt_point, decrypt_point,
+    GENERATOR, ORDER
 )
+from ecdsa import SECP256k1 as _CURVE
+
+
+def _point_to_json(pt: Point) -> dict:
+    """Serialize an EC Point to a JSON-safe dict."""
+    return {"x": pt.x(), "y": pt.y()}
+
+
+def _json_to_point(d: dict) -> Point:
+    """Deserialize an EC Point from a JSON dict."""
+    return Point(_CURVE.curve, d["x"], d["y"])
 
 class DealingError(Exception):
     """
@@ -145,7 +157,7 @@ class DealingModule:
     def _broadcast_points(self, msg_type: str) -> None:
         self.consensus.node.broadcast({
             "type": msg_type,
-            "points": self._points
+            "points": [_point_to_json(p) for p in self._points]
         })
         return
 
@@ -156,7 +168,7 @@ class DealingModule:
         next_pid = (self.pid + 1) % n_player
         self.consensus.node.broadcast({
             "type": msg_type,
-            "points": self._points,
+            "points": [_point_to_json(p) for p in self._points],
             "to": next_pid
         })
         return
@@ -180,7 +192,7 @@ class DealingModule:
                 # TODO: should not happen?
                 continue
             break
-        self._points = raw_msgs[0].payload["points"]
+        self._points = [_json_to_point(p) for p in raw_msgs[0].payload["points"]]
 
     async def _listen_finaldeal(self) -> None:
         peers = self.consensus.node.peers()
@@ -195,7 +207,7 @@ class DealingModule:
                 f"_listen_finaldeal: Missing finaldeal from: {missing}"
             )
         # TODO: use receive to verify?
-        self._points = raw_msgs[0].payload["points"]
+        self._points = [_json_to_point(p) for p in raw_msgs[0].payload["points"]]
 
     async def _encrypt_shuffle(self, deck: List[int]) -> None:
         if self._skey is None:

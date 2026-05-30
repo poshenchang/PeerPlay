@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<title>Animation Test</title>
+<style>
+  :root {
+    --bg:#0f0f1a; --surface:#1a1a2e; --border:#2a2a4a;
+    --text:#e0e0f0; --muted:#7070a0; --accent:#4e8fe8;
+    --accent-lt:#7ab0f5; --yellow:#f39c12; --red:#e74c3c;
+    --card-bg:#f5f5f0; --card-text:#111;
+  }
+  body { background:var(--bg); color:var(--text); font-family:sans-serif; padding:20px; }
+  h2 { color:var(--accent-lt); }
+  #game-table { display:flex; flex-direction:column; gap:6px; max-width:700px; margin:16px 0; }
+  .row-slot {
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:10px; padding:7px 12px; display:flex;
+    align-items:center; gap:10px; min-height:72px; position:relative;
+  }
+  .row-label { font-size:0.68rem; color:var(--muted); width:26px; flex-shrink:0; text-align:center; line-height:1.5; }
+  .row-horns-sum { font-size:0.6rem; color:var(--red); opacity:0.75; }
+  .row-cards { display:flex; gap:4px; flex-wrap:wrap; align-items:center; flex:1; }
+  .card {
+    width:46px; height:64px; background:var(--card-bg); border:1.5px solid #ccc;
+    border-radius:6px; display:flex; flex-direction:column; align-items:stretch;
+    cursor:default; flex-shrink:0; overflow:hidden;
+    box-shadow:1px 2px 4px rgba(0,0,0,.22); position:relative;
+  }
+  .card[data-horns="7"] { background:#fff0ee; border-color:#e74c3c; }
+  .card[data-horns="5"] { background:#fff6ea; border-color:#e67e22; }
+  .card[data-horns="3"] { background:#fffde7; border-color:#c9a806; }
+  .card[data-horns="2"] { background:#f0fff6; border-color:#27ae60; }
+  .card-num   { font-size:1rem; font-weight:900; color:var(--card-text); line-height:1; padding:4px 4px 0; }
+  .card-center { flex:1; display:flex; align-items:center; justify-content:center; font-size:1.1rem; }
+  .card-horns { font-size:0.6rem; color:#c0392b; text-align:center; padding:0 3px 3px; line-height:1.2; }
+  @keyframes cardDropIn {
+    from { opacity:0; transform:translateY(-18px) scale(0.85); }
+    to   { opacity:1; transform:translateY(0) scale(1); }
+  }
+  .card.drop-in { animation:cardDropIn 0.28s ease-out forwards; }
+  @keyframes rowFlash {
+    0% { background:rgba(78,143,232,.28); } 100% { background:transparent; }
+  }
+  .row-slot.flash-place { animation:rowFlash 0.45s ease-out; }
+  @keyframes rowFlashRed {
+    0% { background:rgba(231,76,60,.35); } 100% { background:transparent; }
+  }
+  .row-slot.flash-take { animation:rowFlashRed 0.55s ease-out; }
+  @keyframes cardGlow {
+    0% { box-shadow:0 0 0 4px rgba(78,143,232,0); }
+    50% { box-shadow:0 0 16px 4px rgba(78,143,232,.8); }
+    100% { box-shadow:0 0 0 4px rgba(78,143,232,0); }
+  }
+  .card.glowing { animation:cardGlow 0.5s ease-in-out; }
+
+  #played-zone {
+    display:none; gap:10px; flex-wrap:wrap;
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:10px; padding:9px 14px; margin-bottom:12px;
+  }
+  #played-zone.visible { display:flex; }
+  .played-label { width:100%; font-size:0.68rem; color:var(--muted); margin-bottom:2px; }
+  .played-slot { display:flex; flex-direction:column; align-items:center; gap:4px; }
+  .played-name { font-size:0.64rem; color:var(--muted); }
+  .played-name.is-me { color:var(--accent-lt); font-weight:600; }
+  .played-card { opacity:0.85; }
+
+  #score-board { margin-bottom:12px; font-size:0.8rem; color:var(--muted); }
+  .controls { display:flex; gap:10px; flex-wrap:wrap; margin-top:20px; }
+  button {
+    background:var(--accent); color:#fff; border:none; border-radius:8px;
+    padding:8px 18px; cursor:pointer; font-size:0.9rem; font-weight:600;
+  }
+  button:hover { background:var(--accent-lt); }
+  button.red { background:var(--red); }
+  #log { margin-top:16px; font-size:0.75rem; color:var(--muted); white-space:pre-wrap; }
+</style>
+</head>
+<body>
+<h2>🎬 Animation Test Page</h2>
+<div id="score-board">分數板會在這裡更新</div>
+
+<div id="played-zone">
+  <div class="played-label">本回合出牌</div>
+</div>
+
+<div id="game-table">
+  <div class="row-slot" id="row-wrap-0" data-row="0">
+    <div class="row-label">列 1<div class="row-horns-sum" id="row-horns-0"></div></div>
+    <div class="row-cards" id="row-0"></div>
+  </div>
+  <div class="row-slot" id="row-wrap-1" data-row="1">
+    <div class="row-label">列 2<div class="row-horns-sum" id="row-horns-1"></div></div>
+    <div class="row-cards" id="row-1"></div>
+  </div>
+  <div class="row-slot" id="row-wrap-2" data-row="2">
+    <div class="row-label">列 3<div class="row-horns-sum" id="row-horns-2"></div></div>
+    <div class="row-cards" id="row-2"></div>
+  </div>
+  <div class="row-slot" id="row-wrap-3" data-row="3">
+    <div class="row-label">列 4<div class="row-horns-sum" id="row-horns-3"></div></div>
+    <div class="row-cards" id="row-3"></div>
+  </div>
+</div>
+
+<div class="controls">
+  <button onclick="runTest1()">▶ 測試：4人正常出牌</button>
+  <button class="red" onclick="runTest2()">▶ 測試：有人收走整列</button>
+  <button onclick="runReveal()">▶ 測試：翻牌動畫</button>
+  <button onclick="resetBoard()">🔄 重置</button>
+</div>
+<div id="log"></div>
+
+<script src="ui_manager.js"></script>
+<script>
+// ── stub functions that ui_manager needs ──────────────────
+window.renderGamePage = function(json) {
+  const data = JSON.parse(json);
+  log('renderGamePage called — skipping (test mode)');
+};
+
+// ── helpers ───────────────────────────────────────────────
+function log(msg) {
+  document.getElementById('log').textContent += new Date().toLocaleTimeString() + ' ' + msg + '\n';
+}
+
+function resetBoard() {
+  for (let i = 0; i < 4; i++) {
+    document.getElementById('row-' + i).innerHTML = '';
+    document.getElementById('row-horns-' + i).textContent = '';
+    document.getElementById('row-wrap-' + i).classList.remove('flash-place','flash-take');
+  }
+  window.clearPlayedZone();
+  document.getElementById('score-board').textContent = '分數板已重置';
+  document.getElementById('log').textContent = '';
+  log('Board reset');
+}
+
+// ── fill initial board state ──────────────────────────────
+function fillInitialBoard() {
+  const initial = [[10,20,30,45],[5,15],[60,70,80],[2,8,18]];
+  initial.forEach((cards, i) => {
+    const rowEl = document.getElementById('row-' + i);
+    rowEl.innerHTML = '';
+    cards.forEach(n => rowEl.appendChild(createCardDOM(n)));
+    const hornSum = cards.reduce((s, n) => s + cardHorns(n), 0);
+    document.getElementById('row-horns-' + i).textContent = hornSum + '🐂';
+  });
+}
+
+// ── set up played zone with face-down cards ───────────────
+function setupPlayedZone(players, myName) {
+  const zone = document.getElementById('played-zone');
+  zone.innerHTML = '<div class="played-label">本回合出牌</div>';
+  players.forEach(name => {
+    const slot = document.createElement('div');
+    slot.className = 'played-slot';
+    const label = document.createElement('div');
+    label.className = 'played-name' + (name === myName ? ' is-me' : '');
+    label.textContent = name;
+    const card = document.createElement('div');
+    card.className = 'card face-down played-card';
+    card.id = 'pcard-' + name;
+    card.innerHTML = '<span class="card-num" style="visibility:hidden">?</span><span class="card-center"></span><span class="card-horns"></span>';
+    slot.appendChild(label);
+    slot.appendChild(card);
+    zone.appendChild(slot);
+  });
+  zone.classList.add('visible');
+}
+
+// ── Test 1: 4 players normal ──────────────────────────────
+function runTest1() {
+  resetBoard();
+  fillInitialBoard();
+  const players = ['Alice','Bob','Carol','Dave'];
+  setupPlayedZone(players, 'Alice');
+
+  log('--- Test 1: 4 players, all placed ---');
+
+  // First reveal staggered
+  window.revealAllPlayedStaggered({ Alice:22, Bob:35, Carol:49, Dave:55 });
+
+  // Then after 2s animate resolution
+  setTimeout(() => {
+    log('Animating round resolution...');
+    window.animateRoundResolution(
+      [
+        { player:'Alice', card:22, target_row:0, action:'placed',   score_added:0 },
+        { player:'Bob',   card:35, target_row:1, action:'placed',   score_added:0 },
+        { player:'Carol', card:49, target_row:2, action:'placed',   score_added:0 },
+        { player:'Dave',  card:55, target_row:3, action:'placed',   score_added:0 },
+      ],
+      [[10,20,30,45,22],[5,15,35],[60,70,80,49],[2,8,18,55]],
+      { Alice:0, Bob:0, Carol:0, Dave:0 },
+      'Alice',
+      players
+    );
+  }, players.length * 380 + 600);
+}
+
+// ── Test 2: someone takes a row ───────────────────────────
+function runTest2() {
+  resetBoard();
+  fillInitialBoard();
+  const players = ['Alice','Bob','Carol','Dave'];
+  setupPlayedZone(players, 'Alice');
+
+  log('--- Test 2: Alice takes row (card too small) ---');
+
+  window.revealAllPlayedStaggered({ Alice:1, Bob:35, Carol:49, Dave:55 });
+
+  setTimeout(() => {
+    log('Animating round resolution with took_row...');
+    window.animateRoundResolution(
+      [
+        { player:'Alice', card:1,  target_row:1, action:'took_row', score_added:5 },
+        { player:'Bob',   card:35, target_row:1, action:'placed',   score_added:0 },
+        { player:'Carol', card:49, target_row:2, action:'placed',   score_added:0 },
+        { player:'Dave',  card:55, target_row:3, action:'placed',   score_added:0 },
+      ],
+      [[10,20,30,45],[1],[60,70,80,49],[2,8,18,55]],
+      { Alice:5, Bob:0, Carol:0, Dave:0 },
+      'Alice',
+      players
+    );
+  }, players.length * 380 + 600);
+}
+
+// ── Test 3: reveal only ───────────────────────────────────
+function runReveal() {
+  resetBoard();
+  fillInitialBoard();
+  const players = ['Alice','Bob','Carol','Dave'];
+  setupPlayedZone(players, 'Alice');
+  log('--- Test 3: reveal staggered only ---');
+  window.revealAllPlayedStaggered({ Alice:11, Bob:22, Carol:55, Dave:88 });
+}
+
+// Auto-run test 1 on load
+fillInitialBoard();
+log('頁面載入完成。點選上方按鈕測試動畫。');
+</script>
+</body>
+</html>

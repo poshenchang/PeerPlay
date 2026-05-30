@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PeerPlay — 六隻牛 (6 Nimmt!)</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #1a1a2e;
+      --surface:   #16213e;
+      --surface2:  #0f3460;
+      --border:    #1e4080;
+      --accent:    #4e8fe8;
+      --accent-lt: #7fb3ff;
+      --green:     #2ecc71;
+      --red:       #e74c3c;
+      --yellow:    #f39c12;
+      --text:      #e8eaf6;
+      --muted:     #5a7aa8;
+      --card-bg:   #fafafa;
+      --card-text: #111;
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    .screen { display: none; min-height: 100vh; }
+    .screen.active { display: flex; flex-direction: column; }
+
+    /* ═══ LOBBY ═══════════════════════════════════════════════ */
+    #lobby-screen {
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .lobby-box {
+      width: 100%;
+      max-width: 500px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .logo { font-size: 2.6rem; font-weight: 900; color: var(--accent-lt); letter-spacing: -1px; margin-bottom: 4px; }
+    .logo-sub { font-size: 0.84rem; color: var(--muted); margin-bottom: 30px; letter-spacing: 1px; }
+
+    .my-id-badge {
+      font-size: 0.75rem; color: var(--muted);
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 20px; padding: 4px 18px; margin-bottom: 28px;
+    }
+
+    .counter-area { display: flex; align-items: baseline; gap: 5px; margin-bottom: 4px; }
+    .counter-num { font-size: 4rem; font-weight: 900; color: var(--accent-lt); line-height: 1; transition: color 0.4s; }
+    .counter-num.full { color: var(--green); }
+    .counter-sep, .counter-max { font-size: 2rem; color: #333; }
+    .counter-label { font-size: 0.82rem; color: var(--muted); margin-bottom: 20px; }
+
+    .progress-track {
+      width: 320px; height: 6px; background: rgba(255,255,255,.06);
+      border-radius: 6px; overflow: hidden; margin-bottom: 26px;
+    }
+    .progress-fill {
+      height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-lt));
+      border-radius: 6px; width: 25%; transition: width 0.45s cubic-bezier(.4,0,.2,1);
+    }
+
+    .slots { display: flex; gap: 14px; margin-bottom: 26px; }
+    .slot { width: 82px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+    .slot-icon {
+      width: 54px; height: 54px; border-radius: 50%; border: 2px solid var(--border);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.5rem; background: var(--surface); transition: all 0.35s;
+    }
+    .slot.me     .slot-icon { border-color: var(--accent); background: rgba(78,143,232,.12); }
+    .slot.filled .slot-icon { border-color: var(--green);  background: rgba(46,204,113,.10); }
+    .slot-name { font-size: 0.66rem; color: var(--muted); text-align: center; max-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .lobby-log {
+      width: 100%; background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 10px 14px; max-height: 150px;
+      overflow-y: auto; font-size: 0.76rem; line-height: 1.7;
+    }
+    .log-line        { color: var(--muted); }
+    .log-line.system { color: var(--accent-lt); }
+    .log-line.error  { color: var(--red); }
+
+    /* ═══ GAME SCREEN ════════════════════════════════════════ */
+    #game-screen { padding: 10px 14px 14px; gap: 9px; }
+
+    #score-board { display: flex; gap: 7px; flex-wrap: wrap; }
+    .score-item {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; padding: 5px 14px; display: flex; align-items: center; gap: 8px; font-size: 0.82rem;
+    }
+    .score-name { color: var(--accent-lt); font-weight: 700; }
+    .score-name.is-me::after { content: ' ★'; font-size: 0.8em; color: var(--yellow); }
+    .score-val   { color: var(--text); }
+    .score-delta { color: var(--red); font-weight: 700; margin-left: 3px; font-size: 0.75rem; }
+    @keyframes scoreFlash {
+      0%   { background: rgba(231,76,60,.25); transform: scale(1.07); }
+      60%  { background: rgba(231,76,60,.15); }
+      100% { background: var(--surface); transform: scale(1); }
+    }
+    .score-item.flashing { animation: scoreFlash 1s ease forwards; }
+
+    /* Table rows */
+    #game-table { display: flex; flex-direction: column; gap: 6px; }
+    .row-slot {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; padding: 7px 12px; display: flex;
+      align-items: center; gap: 10px; min-height: 72px;
+      transition: border-color 0.2s, background 0.2s; position: relative;
+    }
+    .row-slot.selectable { cursor: pointer; border-color: var(--yellow); background: rgba(243,156,18,.06); }
+    .row-slot.selectable:hover { background: rgba(243,156,18,.14); border-color: #f5c842; }
+    .row-label { font-size: 0.68rem; color: var(--muted); width: 26px; flex-shrink: 0; text-align: center; line-height: 1.5; }
+    .row-horns-sum { font-size: 0.6rem; color: var(--red); opacity: 0.75; }
+    .row-cards { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; flex: 1; }
+    .row-arrow {
+      display: none; width: 28px; height: 28px; border-radius: 50%;
+      background: var(--yellow); color: #000; align-items: center;
+      justify-content: center; font-size: 0.9rem; font-weight: 900;
+      flex-shrink: 0; margin-left: auto;
+    }
+    .row-slot.selectable .row-arrow { display: flex; }
+
+    /* Card */
+    .card {
+      width: 46px; height: 64px; background: var(--card-bg);
+      border: 1.5px solid #ccc; border-radius: 6px;
+      display: flex; flex-direction: column; align-items: stretch;
+      cursor: default; transition: transform 0.14s, box-shadow 0.14s, border-color 0.14s;
+      flex-shrink: 0; user-select: none; overflow: hidden;
+      box-shadow: 1px 2px 4px rgba(0,0,0,.22); position: relative;
+    }
+    .card[data-horns="7"] { background: #fff0ee; border-color: #e74c3c; }
+    .card[data-horns="5"] { background: #fff6ea; border-color: #e67e22; }
+    .card[data-horns="3"] { background: #fffde7; border-color: #c9a806; }
+    .card[data-horns="2"] { background: #f0fff6; border-color: #27ae60; }
+    .card-num   { font-size: 1rem; font-weight: 900; color: var(--card-text); line-height: 1; padding: 4px 4px 0; align-self: flex-start; }
+    .card-center { flex: 1; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; }
+    .card-horns { font-size: 0.6rem; color: #c0392b; text-align: center; padding: 0 3px 3px; line-height: 1.2; align-self: flex-end; }
+    .card.face-down { background: linear-gradient(135deg, #0f3460 0%, #1a1a2e 100%) !important; border-color: var(--border) !important; }
+    .card.face-down .card-num, .card.face-down .card-center, .card.face-down .card-horns { visibility: hidden; }
+    .card.played-card { opacity: 0.85; cursor: default; }
+
+    /* Hand */
+    #my-hand .card { width: 54px; height: 76px; cursor: pointer; }
+    #my-hand .card:hover { transform: translateY(-9px); box-shadow: 0 10px 20px rgba(0,0,0,.35); }
+    #my-hand .card.selected {
+      transform: translateY(-13px);
+      border: 2px solid var(--accent) !important;
+      box-shadow: 0 12px 24px rgba(78,143,232,.45), 0 0 0 2px rgba(78,143,232,.3);
+    }
+    #my-hand.disabled-layer { opacity: 0.38; pointer-events: none; }
+
+    /* Played zone */
+    #played-zone {
+      display: none; gap: 10px; flex-wrap: wrap;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; padding: 9px 14px;
+    }
+    #played-zone.visible { display: flex; }
+    .played-label { width: 100%; font-size: 0.68rem; color: var(--muted); margin-bottom: 2px; }
+    .played-slot { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+    .played-name { font-size: 0.64rem; color: var(--muted); max-width: 54px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .played-name.is-me { color: var(--accent-lt); font-weight: 600; }
+
+    /* Status bar */
+    #status-bar {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; padding: 9px 16px; display: flex; flex-direction: column; gap: 8px;
+    }
+    #timer-wrap { display: none; align-items: center; gap: 10px; }
+    #timer-wrap.active { display: flex; }
+    #timer-count { font-size: 0.84rem; font-weight: 800; color: var(--accent-lt); min-width: 24px; text-align: right; flex-shrink: 0; transition: color 0.3s; }
+    #timer-count.urgent { color: var(--red); }
+    #timer-track { flex: 1; height: 5px; background: rgba(255,255,255,.07); border-radius: 5px; overflow: hidden; }
+    #timer-fill { height: 100%; width: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-lt)); border-radius: 5px; transition: width linear; }
+    #timer-fill.urgent { background: linear-gradient(90deg, #9b1c1c, var(--red)); }
+    .status-row { display: flex; align-items: center; gap: 12px; }
+    #status-message { font-size: 0.84rem; color: var(--accent-lt); flex: 1; }
+    #commit-btn {
+      background: var(--green); color: #fff; border: none; border-radius: 8px;
+      padding: 8px 22px; font-size: 0.88rem; font-weight: 700; cursor: pointer;
+      transition: background 0.2s, transform 0.1s; flex-shrink: 0;
+    }
+    #commit-btn:hover:not(:disabled) { background: #27ae60; transform: translateY(-1px); }
+    #commit-btn:active:not(:disabled) { transform: translateY(0); }
+    #commit-btn:disabled { background: rgba(46,204,113,.15); color: rgba(255,255,255,.28); cursor: default; }
+
+    /* Hand section */
+    #hand-section { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px 14px; }
+    .hand-label { font-size: 0.68rem; color: var(--muted); margin-bottom: 10px; }
+    #my-hand { display: flex; gap: 6px; flex-wrap: wrap; }
+    .empty-hint { color: var(--muted); font-size: 0.78rem; font-style: italic; }
+
+    /* ═══ OVERLAYS ════════════════════════════════════════════ */
+    .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.78); align-items: center; justify-content: center; z-index: 100; backdrop-filter: blur(4px); }
+    .overlay.visible { display: flex; }
+    .overlay-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 18px; padding: 30px 38px; text-align: center; max-width: 380px; width: 90%;
+    }
+
+    /* Loading */
+    .spinner { width: 38px; height: 38px; border: 4px solid rgba(78,143,232,.15); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.75s linear infinite; margin: 0 auto 16px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #loading-msg { color: var(--text); font-size: 0.88rem; }
+
+    /* Round result */
+    #round-overlay .overlay-card { text-align: left; min-width: 280px; max-width: 460px; max-height: 75vh; overflow-y: auto; padding: 22px 28px; }
+    .round-title { font-size: 1rem; font-weight: 700; color: var(--accent-lt); margin-bottom: 14px; text-align: center; }
+    .round-row { display: grid; grid-template-columns: 1fr auto auto auto; gap: 8px; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--border); font-size: 0.83rem; }
+    .round-row:last-child { border-bottom: none; }
+    .round-player      { color: var(--accent-lt); font-weight: 600; }
+    .round-card-played { color: var(--text); text-align: center; }
+    .round-action      { color: var(--muted); font-size: 0.75rem; }
+    .round-score-delta { color: var(--red); font-weight: 700; text-align: right; }
+    .round-score-delta.zero { color: var(--green); }
+
+    /* Disband */
+    #disband-overlay .overlay-card { border-color: rgba(231,76,60,.5); }
+    .overlay-icon     { font-size: 2.8rem; margin-bottom: 10px; }
+    .overlay-title    { font-size: 1.1rem; font-weight: 700; color: var(--red); margin-bottom: 8px; }
+    .overlay-subtitle { font-size: 0.83rem; color: var(--muted); margin-bottom: 18px; }
+    .overlay-cd       { font-size: 1.6rem; font-weight: 800; color: var(--accent-lt); }
+
+    /* Row-select banner */
+    #row-select-banner {
+      display: none; position: fixed; top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(10,10,22,.9); border: 2px solid var(--yellow);
+      border-radius: 12px; padding: 11px 24px; color: var(--yellow);
+      font-weight: 700; font-size: 0.9rem; z-index: 90; pointer-events: none; white-space: nowrap;
+    }
+    #row-select-banner.visible { display: block; }
+
+    ::-webkit-scrollbar            { width: 4px; }
+    ::-webkit-scrollbar-track      { background: transparent; }
+    ::-webkit-scrollbar-thumb      { background: var(--border); border-radius: 4px; }
+  </style>
+</head>
+<body>
+
+<!-- ═══ LOBBY ════════════════════════════════════════════════ -->
+<div id="lobby-screen" class="screen active">
+  <div class="lobby-box">
+    <div class="logo">🐄 PeerPlay</div>
+    <div class="logo-sub">六隻牛 (6 Nimmt!) — P2P 對戰</div>
+    <div class="my-id-badge" id="my-id-badge">正在連線...</div>
+    <div class="counter-area">
+      <span class="counter-num" id="counter-num">1</span>
+      <span class="counter-sep">/</span>
+      <span class="counter-max">4</span>
+    </div>
+    <div class="counter-label" id="counter-label">等待其他玩家加入...</div>
+    <div class="progress-track">
+      <div class="progress-fill" id="progress-fill" style="width:25%"></div>
+    </div>
+    <div class="slots" id="player-slots"></div>
+    <div class="lobby-log" id="lobby-log">
+      <div class="log-line system">系統：正在尋找房間…</div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══ GAME SCREEN ══════════════════════════════════════════ -->
+<div id="game-screen" class="screen">
+
+  <div id="score-board"><span class="empty-hint">載入中...</span></div>
+
+  <div id="game-table">
+    <div class="row-slot" id="row-wrap-0" data-row="0">
+      <div class="row-label">列 1<div class="row-horns-sum" id="row-horns-0"></div></div>
+      <div class="row-cards" id="row-0"></div>
+      <div class="row-arrow">▶</div>
+    </div>
+    <div class="row-slot" id="row-wrap-1" data-row="1">
+      <div class="row-label">列 2<div class="row-horns-sum" id="row-horns-1"></div></div>
+      <div class="row-cards" id="row-1"></div>
+      <div class="row-arrow">▶</div>
+    </div>
+    <div class="row-slot" id="row-wrap-2" data-row="2">
+      <div class="row-label">列 3<div class="row-horns-sum" id="row-horns-2"></div></div>
+      <div class="row-cards" id="row-2"></div>
+      <div class="row-arrow">▶</div>
+    </div>
+    <div class="row-slot" id="row-wrap-3" data-row="3">
+      <div class="row-label">列 4<div class="row-horns-sum" id="row-horns-3"></div></div>
+      <div class="row-cards" id="row-3"></div>
+      <div class="row-arrow">▶</div>
+    </div>
+  </div>
+
+  <div id="played-zone">
+    <div class="played-label">本回合出牌</div>
+  </div>
+
+  <div id="status-bar">
+    <div id="timer-wrap">
+      <span id="timer-count">30</span>s
+      <div id="timer-track"><div id="timer-fill"></div></div>
+    </div>
+    <div class="status-row">
+      <div id="status-message">等待遊戲開始...</div>
+      <button id="commit-btn" disabled onclick="onCommitButtonClick()">確認出牌</button>
+    </div>
+  </div>
+
+  <div id="hand-section">
+    <div class="hand-label">我的手牌</div>
+    <div id="my-hand"><span class="empty-hint">尚未發牌</span></div>
+  </div>
+
+</div><!-- /game-screen -->
+
+
+<!-- ═══ OVERLAYS ═════════════════════════════════════════════ -->
+<div id="loading-overlay" class="overlay">
+  <div class="overlay-card">
+    <div class="spinner"></div>
+    <div id="loading-msg">載入遊戲中...</div>
+  </div>
+</div>
+
+<div id="round-overlay" class="overlay">
+  <div class="overlay-card">
+    <div class="round-title">📋 本回合結果</div>
+    <div id="round-result-body"></div>
+  </div>
+</div>
+
+<div id="disband-overlay" class="overlay">
+  <div class="overlay-card">
+    <div class="overlay-icon">⚠️</div>
+    <div class="overlay-title">房間已解散</div>
+    <div class="overlay-subtitle">有玩家斷線，遊戲已中止。</div>
+    <div class="overlay-cd" id="disband-cd">重新排隊中...</div>
+  </div>
+</div>
+
+<div id="row-select-banner">請選擇要收走的列 ↑</div>
+
+
+<!-- ═══ SCRIPTS ═══════════════════════════════════════════════ -->
+<script src="./ui_manager.js"></script>
+
+<script type="module">
+  // Dynamic import so the lobby UI renders immediately
+  // before waiting for esm.run CDN (Trystero)
+  const { initNetwork, sendToNetwork, setPythonReady } =
+    await import('../src/network/network.js');
+
+  window.js_send_to_network = sendToNetwork;
+  window._setPythonReady    = setPythonReady;
+
+  let mySelfId  = '';
+  let knownCount = 1;
+
+  function buildSlots() {
+    const el = document.getElementById('player-slots');
+    el.innerHTML = '';
+    for (let i = 0; i < 4; i++) {
+      const s = document.createElement('div');
+      s.className = 'slot';
+      s.id = `slot-${i}`;
+      s.innerHTML = `<div class="slot-icon">⬜</div>
+                     <div class="slot-name">等待中</div>`;
+      el.appendChild(s);
+    }
+  }
+
+  function fillSlot(index, label, kind) {
+    const s = document.getElementById(`slot-${index}`);
+    if (!s) return;
+    s.className = `slot ${kind}`;
+    s.innerHTML = `<div class="slot-icon">${kind === 'me' ? '🙋' : '👤'}</div>
+                   <div class="slot-name">${label.substring(0, 10)}</div>`;
+  }
+
+  function setCounter(n) {
+    knownCount = n;
+    const numEl   = document.getElementById('counter-num');
+    const labelEl = document.getElementById('counter-label');
+    const fillEl  = document.getElementById('progress-fill');
+    if (!numEl) return;
+    numEl.textContent  = n;
+    numEl.className    = 'counter-num' + (n === 4 ? ' full' : '');
+    fillEl.style.width = `${(n / 4) * 100}%`;
+    labelEl.textContent = n < 4
+      ? '等待其他玩家加入...'
+      : '🎉 房間已滿！正在載入遊戲...';
+  }
+
+  /* ── window.appendLog ──────────────────────────────────── */
+  window.appendLog = (msg, type = '') => {
+    const panel = document.getElementById('lobby-log');
+    if (panel) {
+      const countMatch = msg.match(/目前\s*(\d+)\s*\/\s*4/);
+      if (countMatch) {
+        const n = parseInt(countMatch[1]);
+        setCounter(n);
+        const peerMatch = msg.match(/玩家\s*(\S{4,})\s*(?:加入|已加入)/);
+        if (peerMatch) fillSlot(n - 1, peerMatch[1], 'filled');
+      }
+      const div = document.createElement('div');
+      div.textContent = msg;
+      div.className   = 'log-line' + (type ? ` ${type}` : '');
+      panel.appendChild(div);
+      panel.scrollTop = panel.scrollHeight;
+    }
+    console.log(`[Log][${type || 'info'}]`, msg);
+  };
+
+  /* ── Python event handler ──────────────────────────────── */
+  function _handlePythonEvent(eventJson) {
+    let ev;
+    try { ev = JSON.parse(eventJson); } catch(e) { return; }
+    const type = ev.type;
+    console.log('[PythonEvent]', type, ev);
+
+    if (type === 'NEXT_TURN') {
+      try {
+        const stRaw = window.python_get_game_state();
+        const st = JSON.parse(typeof stRaw === 'string' ? stRaw : stRaw.toString());
+        window.renderGamePage(JSON.stringify({
+          scores:      st.scores     || {},
+          table_rows:  st.table_rows || [],
+          my_hand:     st.my_hand    || [],
+          my_name:     mySelfId,
+          all_players: window._players || [],
+        }));
+        window.switchPlayPhase(true, '輪到你出牌，請選一張手牌！', 30);
+      } catch(e) { console.error('[PythonEvent] NEXT_TURN error', e); }
+
+    } else if (type === 'WAITING_FOR_OTHERS') {
+      window.switchPlayPhase(false, '等待其他玩家出牌...');
+
+    } else if (type === 'ALL_CARDS_REVEALED') {
+      window.switchPlayPhase(false, '正在結算...');
+      // Stagger-reveal each player's card in the played zone
+      const cards = ev.cards || {};
+      window.revealAllPlayedStaggered(cards);
+
+    } else if (type === 'ROUND_RESOLVED') {
+      // Animate each card going into its row, then update board
+      // NOTE: newRows not used inside animateRoundResolution; avoid re-entrant python_get_game_state call
+      const plays = ev.plays || [];
+      const scores = ev.scores || {};
+      console.log('[ROUND_RESOLVED] plays:', JSON.stringify(plays), '| scores:', JSON.stringify(scores));
+      window.animateRoundResolution(plays, [], scores, mySelfId, window._players || []);
+
+    } else if (type === 'ROW_SELECTION_REQUIRED') {
+      if (ev.player === mySelfId) {
+        window.enableRowSelection(function(rowIdx) {
+          if (window.python_receive_input) {
+            window.python_receive_input(JSON.stringify({ action: 'CHOOSE_ROW', row_index: rowIdx }));
+          }
+        });
+      } else {
+        window.switchPlayPhase(false, `等待 ${String(ev.player).substring(0,10)} 選擇列...`);
+      }
+
+    } else if (type === 'GAME_OVER') {
+      window.switchPlayPhase(false, '遊戲結束！');
+      window.appendLog('遊戲結束', 'system');
+
+    } else if (type === 'ERROR') {
+      window.appendLog(`[錯誤] ${ev.message}`, 'error');
+    }
+  }
+
+  /* ── window.onRoomFull ─────────────────────────────────── */
+  window.onRoomFull = async (selfId, players) => {
+    mySelfId = selfId;
+    window._selfId  = selfId;
+    window._players = players;
+
+    document.getElementById('lobby-screen').classList.remove('active');
+    document.getElementById('game-screen').classList.add('active');
+
+    showLoading('正在載入 Python 遊戲引擎...');
+
+    try {
+      // 1. Dynamically load Pyodide JS (only now, not at page load)
+      if (typeof loadPyodide === 'undefined') {
+        await new Promise((resolve, reject) => {
+          const s = document.createElement('script');
+          s.src = 'https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide.js';
+          s.onload = resolve;
+          s.onerror = () => reject(new Error('Failed to load pyodide.js'));
+          document.head.appendChild(s);
+        });
+      }
+      const pyodide = await loadPyodide({
+        indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.25.0/full/'
+      });
+      window._pyodide = pyodide;
+
+      // 2. Install ecdsa and cryptography via micropip
+      updateLoading('正在安裝加密模組 (ecdsa, cryptography)...');
+      await pyodide.loadPackage(['micropip', 'cryptography']);
+      const micropip = pyodide.pyimport('micropip');
+      await micropip.install('ecdsa');
+
+      // 3. Create package directories in Pyodide FS
+      updateLoading('正在載入遊戲模組...');
+      ['utils','commitment','consensus','dealing','game','network'].forEach(d => {
+        try { pyodide.runPython(`import os; os.makedirs('${d}', exist_ok=True)`); } catch(e){}
+      });
+
+      // 4. Fetch all Python source files and write to Pyodide FS
+      const BASE = '../src';
+      const pyFiles = [
+        'utils/__init__.py',      'utils/crypto.py',
+        'commitment/__init__.py', 'commitment/commitment.py',
+        'consensus/__init__.py',  'consensus/consensus.py',
+        'dealing/__init__.py',    'dealing/dealing.py',
+        'game/__init__.py',       'game/sixnimmt.py',    'game/orchestrator.py',
+        'network/__init__.py',    'network/network.py',
+        'main.py',
+      ];
+      for (const path of pyFiles) {
+        const r = await fetch(`${BASE}/${path}`);
+        if (r.ok) {
+          pyodide.FS.writeFile(path, await r.text());
+        } else {
+          console.warn('[PeerPlay] fetch failed:', path, r.status);
+        }
+      }
+
+      // 5. Expose JS helpers to Python BEFORE importing main
+      pyodide.globals.set('js_send_to_network', sendToNetwork);
+
+      // 6. Import main.py — registers window.python_* via js.*
+      updateLoading('正在初始化 Python...');
+      await pyodide.runPythonAsync(`
+import sys
+sys.path.insert(0, '.')
+import main
+`);
+
+      // 7. Init orchestrator
+      window.python_init_game(selfId, JSON.stringify(players));
+
+      // 8. Register UI notifier
+      window.python_register_ui_notifier(_handlePythonEvent);
+
+      // 9. Enable message forwarding BEFORE start_game
+      setPythonReady();
+
+      // 10. Start game: consensus + mental-poker dealing (~30–90s)
+      updateLoading('等待所有玩家載入完成...');
+      await window.python_start_game();
+
+      hideLoading();
+
+    } catch(e) {
+      console.warn('[PeerPlay] Python failed, falling back to mock mode:', e);
+      window.appendLog('Python 載入失敗，進入模擬模式', 'error');
+      hideLoading();
+      renderMockGameState(selfId, players);
+    }
+  };
+
+  /* ── window.onRoomDisband ──────────────────────────────── */
+  window.onRoomDisband = () => {
+    hideLoading();
+    document.getElementById('disband-overlay').classList.add('visible');
+    let t = 4.0;
+    const cdEl = document.getElementById('disband-cd');
+    const tick = setInterval(() => {
+      t = Math.max(0, t - 0.1);
+      cdEl.textContent = t > 0 ? `${t.toFixed(1)}s 後重新排隊` : '重新排隊中...';
+      if (t <= 0) {
+        clearInterval(tick);
+        document.getElementById('disband-overlay').classList.remove('visible');
+        document.getElementById('game-screen').classList.remove('active');
+        document.getElementById('lobby-screen').classList.add('active');
+        setCounter(1);
+        buildSlots();
+        fillSlot(0, mySelfId.substring(0, 10), 'me');
+      }
+    }, 100);
+  };
+
+  /* ── window.python_receive_from_network ────────────────── */
+  window.python_receive_from_network = (peerId, jsonStr) => {
+    console.log('[Network] Recv from', peerId, ':', jsonStr);
+    if (window._pyodide) {
+      try {
+        window._pyodide.runPython(
+          `from network import receive_from_network; receive_from_network(${JSON.stringify(peerId)}, ${JSON.stringify(jsonStr)})`
+        );
+      } catch(e) {
+        console.error('[Network] Python receive error:', e);
+      }
+    }
+  };
+
+  /* ── Boot ──────────────────────────────────────────────── */
+  buildSlots();
+  const selfId = initNetwork('peerplay-6nimmt-v1');
+  mySelfId = selfId;
+  window._selfId = selfId;
+  document.getElementById('my-id-badge').textContent = `我的 ID：${selfId.substring(0,16)}…`;
+  fillSlot(0, selfId.substring(0, 10), 'me');
+  setCounter(1);
+</script>
+
+<!-- DEV: uncomment to bypass lobby and test game UI -->
+<!--
+<script>
+  setTimeout(() => window.onRoomFull('Alice', ['Alice', 'Bob', 'Carol', 'Dave']), 300);
+</script>
+-->
+
+</body>
+</html>
