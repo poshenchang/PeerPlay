@@ -208,7 +208,21 @@ class Orchestrator:
         n_players = len(self.players)
 
         # Step 1: broadcast our commit using commit_card
-        commit_id = self.dealing.play_card(commit_card)
+        # If commit_card is not in hand, dealing.play_card will raise PlayCardError.
+        # We need to maliciously bypass that too if we want to demonstrate dealing fraud!
+        try:
+            commit_id = self.dealing.play_card(commit_card)
+        except PlayCardError:
+            # Fake the commit if it's not in our hand
+            commit_id = self.dealing._commit_count
+            # Just use a random tkey since we are cheating anyway
+            import random
+            tkey = random.getrandbits(256)
+            nonce = self.dealing.consensus.commitment.commit(
+                action=commit_card, commit_id=commit_id, key=tkey
+            )
+            self.dealing._commit_count += 1
+            self.dealing._played_queue[commit_id] = (commit_card, nonce, tkey)
 
         # Step 2: collect every enemy's commit before revealing anything
         for enemy_pid in range(n_players):
@@ -218,8 +232,8 @@ class Orchestrator:
 
         # Maliciously modify our dealing queue to reveal a different card!
         if commit_id in self.dealing._played_queue:
-            _, nonce = self.dealing._played_queue[commit_id]
-            self.dealing._played_queue[commit_id] = (reveal_card, nonce)
+            _, nonce, tkey = self.dealing._played_queue[commit_id]
+            self.dealing._played_queue[commit_id] = (reveal_card, nonce, tkey)
 
         # Step 3: reveal our card now that everyone has committed
         self.dealing.reveal_card(commit_id)
