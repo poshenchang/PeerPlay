@@ -455,29 +455,26 @@ window.showGameOverScreen = function(scores, myName) {
   const title  = document.getElementById('go-title');
   if (!podium) return;
 
-  const medals = ['🥇', '🥈', '🥉', '4️⃣'];
-  const myScore = scores[myName];
-  const myRank  = ranked.findIndex(([n]) => n === myName);
+  const medals    = ['🥇', '🥈', '🥉', '4️⃣'];
+  const rankNames = ['第 1 名', '第 2 名', '第 3 名', '第 4 名'];
+  const myRank    = ranked.findIndex(([n]) => n === myName);
 
-  if (myRank === 0) {
-    title.textContent = '🎉 你贏了！';
-  } else if (myRank === ranked.length - 1) {
-    title.textContent = '😢 你輸了...';
-  } else {
-    title.textContent = `🏁 第 ${myRank + 1} 名`;
-  }
+  if (myRank === 0)                       title.textContent = '🎉 你贏了！';
+  else if (myRank === ranked.length - 1)  title.textContent = '😢 你輸了...';
+  else                                    title.textContent = `🏅 第 ${myRank + 1} 名`;
 
   podium.innerHTML = '';
   ranked.forEach(([name, score], i) => {
-    const row = document.createElement('div');
     const isWinner = i === 0;
     const isLoser  = i === ranked.length - 1;
     const isMe     = name === myName;
-    row.className  = `go-row${isWinner ? ' winner' : ''}${isLoser ? ' loser' : ''}`;
+    const row      = document.createElement('div');
+    row.className  = `go-row${isWinner ? ' winner' : ''}${isLoser ? ' loser' : ''}${isMe ? ' is-me-row' : ''}`;
     row.innerHTML  =
       `<span class="go-rank">${medals[i] || (i + 1)}</span>` +
-      `<span class="go-name${isMe ? ' is-me' : ''}">${name.substring(0, 16)}${isMe ? ' (你)' : ''}</span>` +
-      `<span class="go-score">${score} 🐂</span>`;
+      `<span class="go-name${isMe ? ' is-me' : ''}">${name.substring(0, 16)}${isMe ? ' ★' : ''}</span>` +
+      `<span class="go-score">${score} 🐂</span>` +
+      `<span class="go-rank-label">${rankNames[i] || ''}</span>`;
     podium.appendChild(row);
   });
 

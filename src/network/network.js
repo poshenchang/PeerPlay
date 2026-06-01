@@ -80,6 +80,24 @@ export function setMyNickname(nick) {
   window._nicknameMap = nicknameMap;
 }
 
+/**
+ * @public
+ * @description 離開目前房間並重置所有內部狀態，下次呼叫 initNetwork 時就會是全新開始。
+ */
+export function leaveNetwork() {
+  if (room) { room.leave(); room = null; }
+  myPeers.clear();
+  isRoomFull  = false;
+  isJoiningRoom = false;
+  isJumping   = false;
+  currentRoomIdx = 1;
+  myNickname  = '';
+  nicknameMap = {};
+  pythonCoreReady = false;
+  rawAction = null;
+  sysAction = null;
+}
+
 
 // ============================================================================
 // [內部輔助函數 Internal Helpers] - 負責處理房間配對、斷線重連與解散邏輯

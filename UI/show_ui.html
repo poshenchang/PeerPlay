@@ -310,27 +310,29 @@
     .overlay-cd       { font-size: 1.6rem; font-weight: 800; color: var(--accent-lt); }
 
     /* Game over overlay */
-    #gameover-overlay .overlay-card { max-width: 440px; }
-    .go-title { font-size: 1.6rem; font-weight: 900; margin-bottom: 6px; }
-    .go-subtitle { font-size: 0.82rem; color: var(--muted); margin-bottom: 20px; }
-    .go-podium { display: flex; flex-direction: column; gap: 8px; margin-bottom: 22px; }
+    #gameover-overlay .overlay-card { max-width: 460px; width: 100%; padding: 32px 28px 28px; }
+    .go-title { font-size: 1.8rem; font-weight: 900; margin-bottom: 6px; text-align: center; }
+    .go-subtitle { font-size: 0.82rem; color: var(--muted); margin-bottom: 24px; text-align: center; }
+    .go-podium { display: flex; flex-direction: column; gap: 8px; margin-bottom: 28px; width: 100%; }
     .go-row {
       display: flex; align-items: center; gap: 12px;
-      background: var(--surface2); border-radius: 10px; padding: 10px 16px;
-      font-size: 0.9rem;
+      background: var(--surface2); border-radius: 10px; padding: 12px 16px;
+      font-size: 0.9rem; transition: transform 0.15s;
     }
-    .go-rank  { font-size: 1.3rem; width: 28px; text-align: center; flex-shrink: 0; }
+    .go-rank  { font-size: 1.4rem; width: 30px; text-align: center; flex-shrink: 0; }
     .go-name  { flex: 1; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .go-name.is-me { color: var(--accent-lt); }
-    .go-score { font-size: 0.88rem; color: var(--red); font-weight: 700; }
+    .go-score { font-size: 0.9rem; color: var(--red); font-weight: 700; min-width: 60px; text-align: right; }
+    .go-rank-label { font-size: 0.72rem; color: var(--muted); min-width: 36px; text-align: right; }
     .go-row.winner { border: 1.5px solid var(--green); background: rgba(46,204,113,.08); }
     .go-row.loser  { border: 1.5px solid var(--red);   background: rgba(231,76,60,.06); }
+    .go-row.is-me-row { border: 1.5px solid var(--accent); }
     .go-playagain {
-      background: var(--accent); color: #fff; border: none; border-radius: 10px;
-      padding: 11px 30px; font-size: 0.9rem; font-weight: 700; cursor: pointer;
-      transition: background 0.2s;
+      width: 100%; background: var(--accent); color: #fff; border: none; border-radius: 11px;
+      padding: 14px 0; font-size: 1rem; font-weight: 700; cursor: pointer;
+      transition: background 0.2s; margin-bottom: 0;
     }
-    .go-playagain:hover { background: var(--accent-lt); }
+    .go-playagain:hover { background: var(--accent-lt); color: #111; }
 
     /* Card drop-in animation (used by row animation) */
     @keyframes cardDropIn {
@@ -525,7 +527,7 @@
     <div class="go-title" id="go-title">🏁 遊戲結束</div>
     <div class="go-subtitle" id="go-subtitle">最終排名（牛頭越少越好）</div>
     <div class="go-podium" id="go-podium"></div>
-    <button class="go-playagain" onclick="location.reload()">再玩一局</button>
+    <button class="go-playagain" id="go-playagain-btn">🔄 再來一場</button>
   </div>
 </div>
 
@@ -537,7 +539,7 @@
 <script src="./ui_manager.js"></script>
 
 <script type="module">
-  import { initNetwork, sendToNetwork, setPythonReady, setMyNickname }
+  import { initNetwork, sendToNetwork, setPythonReady, setMyNickname, leaveNetwork }
     from '../src/network/network.js';
 
   window.js_send_to_network = sendToNetwork;
@@ -818,6 +820,42 @@ import main
     }
   };
 
+  /* ── 再來一場：回到房間選擇畫面 ─────────────────────────── */
+  function resetToRoomScreen() {
+    // 1. 斷開 Trystero 連線
+    leaveNetwork();
+
+    // 2. 隱藏所有畫面和 overlay
+    ['game-screen', 'lobby-screen'].forEach(id =>
+      document.getElementById(id).classList.remove('active')
+    );
+    document.getElementById('gameover-overlay').classList.remove('visible');
+
+    // 3. 清空 JS 狀態
+    mySelfId   = '';
+    myNickname = '';
+    window._nicknameMap = {};
+    window._slotPeerMap = {};
+    window._players     = [];
+    window._pyodide     = null;
+
+    // 4. 重置 lobby UI
+    buildSlots();
+    document.getElementById('lobby-log').innerHTML =
+      '<div class="log-line system">系統：正在尋找房間…</div>';
+    document.getElementById('lobby-room-code').classList.remove('visible');
+    document.getElementById('lobby-code-val').textContent = '';
+    setCounter(1);
+
+    // 5. 回到代碼輸入畫面
+    showStep('rc-step-choice');
+    document.getElementById('roomcode-screen').classList.add('active');
+    document.getElementById('nickname-input').value = '';
+    document.getElementById('nickname-input').focus();
+  }
+
+  document.getElementById('go-playagain-btn').addEventListener('click', resetToRoomScreen);
+
   /* ── window.onRoomDisband ──────────────────────────────── */
   window.onRoomDisband = () => {
     hideLoading();
@@ -962,6 +1000,9 @@ import main
       my_name:     nickOf(MOCK_SELF),
       all_players: allPlayers.map(nickOf),
     }));
+
+    // 測試遊戲結束畫面（把下面一行的注釋拿掉可直接顯示結束畫面）
+    // setTimeout(() => window.showGameOverScreen(Object.fromEntries(allPlayers.map((id,i)=>[nickOf(id),i*7])), nickOf(MOCK_SELF)), 1000);
   }
   // ═══════════════════════════════════════════════════════════
 </script>
