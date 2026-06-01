@@ -102,8 +102,7 @@ class Orchestrator:
         # to keep EC operations to minimum (mental poker encrypts every card)
         hand_size = 10
         n_players = len(self.players)
-        needed = remaining_deck[:n_players * hand_size]  # 40 cards instead of 100
-        self.pid, hand = await self.dealing.deal(needed, hand_size)
+        self.pid, hand = await self.dealing.deal(remaining_deck, hand_size)
         
         # 3. Reset the engine with these values
         self.engine.reset(
