@@ -216,3 +216,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Test / dev-only HTML files (not part of production)
+UI/index.html
+UI/test_animation.html
+src/network/index.html
