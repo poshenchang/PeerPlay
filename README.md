@@ -87,16 +87,6 @@ python3 -m http.server 8080
 
 ---
 
-### 2. WSL / Windows 磁碟寫入問題（開發環境）
-
-**症狀**：修改 Python 原始碼後，瀏覽器仍拿到舊版本。
-
-**原因**：VS Code 在 WSL 環境下，編輯工具修改的是記憶體 buffer，不一定立即寫入 Windows 磁碟（`/mnt/c/`）。HTTP server 讀取磁碟，因此看到舊版。
-
-**解法**：用終端機的 `python3 -c` 或 `sed` 修改檔案，確保寫入磁碟。
-
----
-
 ## 依賴套件
 
 ```
