@@ -271,8 +271,10 @@ class SixNimmtGame:
             return
         try:
             self.my_hand.remove(card)
-        except ValueError as exc:
-            raise ValueError(f"Local player {player} does not have card {card} in hand.") from exc
+        except ValueError:
+            # Suppress error to allow the cheat demonstration to proceed 
+            # without crashing the cheater's local UI state.
+            print(f"[Cheat Demo] Ignoring missing card {card} from hand.")
 
     # -------------------------------------------------------------- round play
     def apply_verified_round(self, plays: Sequence[RoundPlay]) -> Dict[str, dict]:
