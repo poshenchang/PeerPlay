@@ -220,6 +220,7 @@ __marimo__/
 # Test / dev-only HTML files (not part of production)
 UI/index.html
 UI/test_animation.html
+UI/template/
 src/network/index.html
 
 # Tests
