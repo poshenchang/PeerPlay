@@ -30,6 +30,8 @@ let myPeers = new Set();
 let isRoomFull = false;
 let isJoiningRoom = false;
 let isJumping = false;
+let myNickname = '';
+let nicknameMap = {};
 
 
 // ============================================================================
@@ -65,6 +67,17 @@ export function sendToNetwork(jsonStr) {
  */
 export function setPythonReady() {
   pythonCoreReady = true;
+}
+
+/**
+ * @public
+ * @description 設定本機玩家的暱稱，並在房間內廣播給已連線的 peers。
+ * @param {string} nick - 暱稱
+ */
+export function setMyNickname(nick) {
+  myNickname = nick;
+  nicknameMap[selfId] = nick;
+  window._nicknameMap = nicknameMap;
 }
 
 
@@ -129,10 +142,14 @@ function searchAndJoinRoom(appId) {
 
   sysAction = room.makeAction('sysInfo');
   sysAction.onMessage = (msg, { peerId }) => {
-    if (isJumping) return; 
+    if (isJumping) return;
     if (msg.type === 'REJECT' && !isRoomFull) {
       if(window.appendLog) window.appendLog(`[系統] 此房間已經客滿，自動跳轉至下一間...`, 'error');
       jumpToNextRoom(appId);
+    } else if (msg.type === 'NICKNAME') {
+      nicknameMap[peerId] = msg.nick;
+      window._nicknameMap = nicknameMap;
+      if (window.onNicknameReceived) window.onNicknameReceived(peerId, msg.nick);
     }
   };
 
@@ -150,7 +167,11 @@ function searchAndJoinRoom(appId) {
     }
 
     myPeers.add(peerId);
-    if(window.appendLog) window.appendLog(`[系統] 玩家 ${peerId.substring(0, 6)} 加入。目前 ${myPeers.size + 1}/${MAX_PLAYERS} 人`, 'system');
+    // 互報暱稱
+    if (myNickname) sysAction.send({ type: 'NICKNAME', nick: myNickname }, { target: peerId });
+    const displayName = nicknameMap[peerId] || peerId.substring(0, 6);
+    if(window.appendLog) window.appendLog(`[系統] 玩家 ${displayName} 加入。目前 ${myPeers.size + 1}/${MAX_PLAYERS} 人`, 'system');
+    if(window.onPeerJoined) window.onPeerJoined(peerId, myPeers.size + 1);
     
     // 檢查是否滿員
     if (myPeers.size + 1 === MAX_PLAYERS) {

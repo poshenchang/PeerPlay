@@ -54,8 +54,22 @@
     .my-id-badge {
       font-size: 0.75rem; color: var(--muted);
       background: var(--surface); border: 1px solid var(--border);
-      border-radius: 20px; padding: 4px 18px; margin-bottom: 28px;
+      border-radius: 20px; padding: 4px 18px; margin-bottom: 8px;
     }
+    .lobby-room-code {
+      display: none; align-items: center; gap: 8px;
+      background: var(--surface); border: 1.5px solid var(--accent);
+      border-radius: 20px; padding: 5px 14px 5px 18px; margin-bottom: 20px;
+      font-size: 0.78rem; color: var(--muted);
+    }
+    .lobby-room-code.visible { display: flex; }
+    .lobby-code-val { font-weight: 900; letter-spacing: 4px; color: var(--accent-lt); font-family: monospace; font-size: 0.9rem; }
+    .lobby-copy-btn {
+      background: none; border: 1px solid var(--border); color: var(--muted);
+      border-radius: 6px; padding: 2px 8px; font-size: 0.72rem; cursor: pointer;
+      transition: border-color 0.2s, color 0.2s;
+    }
+    .lobby-copy-btn:hover { border-color: var(--accent); color: var(--accent-lt); }
 
     .counter-area { display: flex; align-items: baseline; gap: 5px; margin-bottom: 4px; }
     .counter-num { font-size: 4rem; font-weight: 900; color: var(--accent-lt); line-height: 1; transition: color 0.4s; }
@@ -91,6 +105,67 @@
     .log-line        { color: var(--muted); }
     .log-line.system { color: var(--accent-lt); }
     .log-line.error  { color: var(--red); }
+
+    /* ═══ ROOM CODE SCREEN ══════════════════════════════════════ */
+    #roomcode-screen { align-items: center; justify-content: center; padding: 24px; }
+    .rc-box { width: 100%; max-width: 380px; display: flex; flex-direction: column; align-items: center; gap: 20px; }
+    .rc-nick-wrap { width: 100%; display: flex; flex-direction: column; gap: 6px; }
+    .rc-label { font-size: 0.72rem; color: var(--muted); }
+    .rc-nick-input {
+      width: 100%; background: var(--surface); border: 1.5px solid var(--border);
+      border-radius: 10px; color: var(--text); font-size: 1rem;
+      text-align: center; padding: 11px 16px; outline: none; transition: border-color 0.2s;
+    }
+    .rc-nick-input:focus { border-color: var(--accent); }
+    .rc-step { display: none; width: 100%; flex-direction: column; gap: 14px; }
+    .rc-step.active { display: flex; }
+    .rc-choices { display: flex; flex-direction: column; width: 100%; gap: 10px; }
+    .rc-choice {
+      width: 100%; background: var(--surface); border: 1.5px solid var(--border);
+      border-radius: 11px; padding: 16px 20px; display: flex;
+      align-items: center; gap: 16px; cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .rc-choice:hover { border-color: var(--accent); background: rgba(78,143,232,.07); }
+    .rc-choice-icon { font-size: 1.8rem; flex-shrink: 0; }
+    .rc-choice-text { display: flex; flex-direction: column; gap: 2px; text-align: left; }
+    .rc-choice-title { font-size: 1rem; font-weight: 700; color: var(--text); }
+    .rc-choice-desc { font-size: 0.75rem; color: var(--muted); line-height: 1.4; }
+    .rc-back {
+      background: none; border: none; color: var(--muted); cursor: pointer;
+      font-size: 0.82rem; align-self: flex-start; padding: 0; transition: color 0.2s;
+    }
+    .rc-back:hover { color: var(--accent-lt); }
+    .rc-code-box {
+      width: 100%; background: var(--surface2); border: 2px solid var(--accent);
+      border-radius: 14px; padding: 22px; text-align: center;
+    }
+    .rc-code-label { font-size: 0.72rem; color: var(--muted); margin-bottom: 10px; }
+    .rc-code-value {
+      font-size: 2.2rem; font-weight: 900; letter-spacing: 10px;
+      color: var(--accent-lt); font-family: monospace; margin-bottom: 12px;
+    }
+    .rc-copy-btn {
+      background: transparent; border: 1px solid var(--border); color: var(--muted);
+      border-radius: 7px; padding: 5px 16px; font-size: 0.76rem; cursor: pointer;
+      transition: border-color 0.2s, color 0.2s;
+    }
+    .rc-copy-btn:hover { border-color: var(--accent); color: var(--accent-lt); }
+    .rc-join-input {
+      width: 100%; background: var(--surface); border: 1.5px solid var(--border);
+      border-radius: 10px; color: var(--text); font-size: 1.6rem; font-weight: 700;
+      text-align: center; letter-spacing: 8px; padding: 13px 16px; outline: none;
+      text-transform: uppercase; transition: border-color 0.2s;
+    }
+    .rc-join-input:focus { border-color: var(--accent); }
+    .rc-join-input.error { border-color: var(--red); }
+    .rc-hint { font-size: 0.73rem; color: var(--muted); text-align: center; }
+    .rc-btn {
+      width: 100%; background: var(--accent); color: #fff; border: none;
+      border-radius: 11px; padding: 13px 0; font-size: 0.96rem; font-weight: 700;
+      cursor: pointer; transition: background 0.2s;
+    }
+    .rc-btn:hover { background: var(--accent-lt); color: #111; }
 
     /* ═══ GAME SCREEN ════════════════════════════════════════ */
     #game-screen { padding: 10px 14px 14px; gap: 9px; }
@@ -234,6 +309,56 @@
     .overlay-subtitle { font-size: 0.83rem; color: var(--muted); margin-bottom: 18px; }
     .overlay-cd       { font-size: 1.6rem; font-weight: 800; color: var(--accent-lt); }
 
+    /* Game over overlay */
+    #gameover-overlay .overlay-card { max-width: 440px; }
+    .go-title { font-size: 1.6rem; font-weight: 900; margin-bottom: 6px; }
+    .go-subtitle { font-size: 0.82rem; color: var(--muted); margin-bottom: 20px; }
+    .go-podium { display: flex; flex-direction: column; gap: 8px; margin-bottom: 22px; }
+    .go-row {
+      display: flex; align-items: center; gap: 12px;
+      background: var(--surface2); border-radius: 10px; padding: 10px 16px;
+      font-size: 0.9rem;
+    }
+    .go-rank  { font-size: 1.3rem; width: 28px; text-align: center; flex-shrink: 0; }
+    .go-name  { flex: 1; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .go-name.is-me { color: var(--accent-lt); }
+    .go-score { font-size: 0.88rem; color: var(--red); font-weight: 700; }
+    .go-row.winner { border: 1.5px solid var(--green); background: rgba(46,204,113,.08); }
+    .go-row.loser  { border: 1.5px solid var(--red);   background: rgba(231,76,60,.06); }
+    .go-playagain {
+      background: var(--accent); color: #fff; border: none; border-radius: 10px;
+      padding: 11px 30px; font-size: 0.9rem; font-weight: 700; cursor: pointer;
+      transition: background 0.2s;
+    }
+    .go-playagain:hover { background: var(--accent-lt); }
+
+    /* Card drop-in animation (used by row animation) */
+    @keyframes cardDropIn {
+      from { opacity: 0; transform: translateY(-18px) scale(0.85); }
+      to   { opacity: 1; transform: translateY(0)     scale(1); }
+    }
+    .card.drop-in { animation: cardDropIn 0.28s ease-out forwards; }
+
+    /* Row flash highlight */
+    @keyframes rowFlash {
+      0%   { background: rgba(78,143,232,.28); }
+      100% { background: transparent; }
+    }
+    .row-slot.flash-place { animation: rowFlash 0.45s ease-out; }
+    @keyframes rowFlashRed {
+      0%   { background: rgba(231,76,60,.35); }
+      100% { background: transparent; }
+    }
+    .row-slot.flash-take { animation: rowFlashRed 0.55s ease-out; }
+
+    /* Played card glow when it's "being processed" in animation */
+    @keyframes cardGlow {
+      0%   { box-shadow: 0 0 0   4px rgba(78,143,232,0); }
+      50%  { box-shadow: 0 0 16px 4px rgba(78,143,232,.8); }
+      100% { box-shadow: 0 0 0   4px rgba(78,143,232,0); }
+    }
+    .card.glowing { animation: cardGlow 0.5s ease-in-out; }
+
     /* Row-select banner */
     #row-select-banner {
       display: none; position: fixed; top: 50%; left: 50%;
@@ -251,12 +376,58 @@
 </head>
 <body>
 
+<!-- ═══ ROOM CODE ════════════════════════════════════════════ -->
+<div id="roomcode-screen" class="screen active">
+  <div class="rc-box">
+    <div class="logo">🐄 PeerPlay</div>
+    <div class="logo-sub">六隻牛 (6 Nimmt!) — P2P 對戰</div>
+
+    <div class="rc-nick-wrap">
+      <div class="rc-label">暱稱（最多 10 字）</div>
+      <input id="nickname-input" class="rc-nick-input" maxlength="10" placeholder="你的暱稱" spellcheck="false" autocomplete="off" />
+    </div>
+
+    <!-- 選擇畫面 -->
+    <div class="rc-step active" id="rc-step-choice">
+      <div class="rc-choices">
+        <div class="rc-choice" id="btn-go-create">
+          <div class="rc-choice-icon">🏠</div>
+          <div class="rc-choice-text">
+            <div class="rc-choice-title">建立房間</div>
+            <div class="rc-choice-desc">產生代碼，邀請隊友加入</div>
+          </div>
+        </div>
+        <div class="rc-choice" id="btn-go-join">
+          <div class="rc-choice-icon">🔑</div>
+          <div class="rc-choice-text">
+            <div class="rc-choice-title">加入房間</div>
+            <div class="rc-choice-desc">輸入代碼，加入已建立的局</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 加入房間 -->
+    <div class="rc-step" id="rc-step-join">
+      <button class="rc-back" id="back-from-join">← 返回</button>
+      <div class="rc-label">輸入房間代碼</div>
+      <input id="roomcode-input" class="rc-join-input" maxlength="8" placeholder="······" spellcheck="false" autocomplete="off" />
+      <div class="rc-hint">輸入房主分享的 6 碼代碼</div>
+      <button class="rc-btn" id="join-btn">加入房間 →</button>
+    </div>
+  </div>
+</div>
+
 <!-- ═══ LOBBY ════════════════════════════════════════════════ -->
-<div id="lobby-screen" class="screen active">
+<div id="lobby-screen" class="screen">
   <div class="lobby-box">
     <div class="logo">🐄 PeerPlay</div>
     <div class="logo-sub">六隻牛 (6 Nimmt!) — P2P 對戰</div>
     <div class="my-id-badge" id="my-id-badge">正在連線...</div>
+    <div class="lobby-room-code" id="lobby-room-code">
+      房間代碼：<span class="lobby-code-val" id="lobby-code-val"></span>
+      <button class="lobby-copy-btn" id="lobby-copy-btn">📋 複製</button>
+    </div>
     <div class="counter-area">
       <span class="counter-num" id="counter-num">1</span>
       <span class="counter-sep">/</span>
@@ -317,13 +488,6 @@
     </div>
   </div>
 
-  <div id="cheat-section" style="background: #331111; border: 1px solid var(--red); padding: 10px; margin-top: 10px; border-radius: 5px; font-size: 0.85rem; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-    <h4 style="color: var(--red); margin-right: 10px;">作弊工具</h4>
-    <label>Commit Card: <input type="number" id="cheat-commit-card" value="10" style="width: 50px; background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 2px 4px;"></label>
-    <label>Reveal Card: <input type="number" id="cheat-reveal-card" value="99" style="width: 50px; background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 2px 4px;"></label>
-    <button onclick="onCheatPlayCard()" style="background: var(--red); color: #fff; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer;">Cheat Play</button>
-  </div>
-
   <div id="hand-section">
     <div class="hand-label">我的手牌</div>
     <div id="my-hand"><span class="empty-hint">尚未發牌</span></div>
@@ -356,12 +520,12 @@
   </div>
 </div>
 
-<div id="cheat-overlay" class="overlay">
-  <div class="overlay-card" style="border-color: rgba(231,76,60,.5);">
-    <div class="overlay-icon">🚨</div>
-    <div class="overlay-title">作弊警告！</div>
-    <div class="overlay-subtitle" id="cheat-overlay-msg" style="color: var(--text);"></div>
-    <button onclick="document.getElementById('cheat-overlay').classList.remove('visible')" style="background: var(--red); color: #fff; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; margin-top: 10px;">關閉</button>
+<div id="gameover-overlay" class="overlay">
+  <div class="overlay-card">
+    <div class="go-title" id="go-title">🏁 遊戲結束</div>
+    <div class="go-subtitle" id="go-subtitle">最終排名（牛頭越少越好）</div>
+    <div class="go-podium" id="go-podium"></div>
+    <button class="go-playagain" onclick="location.reload()">再玩一局</button>
   </div>
 </div>
 
@@ -369,18 +533,24 @@
 
 
 <!-- ═══ SCRIPTS ═══════════════════════════════════════════════ -->
+<script src="https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide.js"></script>
 <script src="./ui_manager.js"></script>
 
 <script type="module">
-  // Dynamic import so the lobby UI renders immediately
-  // before waiting for esm.run CDN (Trystero)
-  const { initNetwork, sendToNetwork, setPythonReady } =
-    await import('../src/network/network.js');
+  import { initNetwork, sendToNetwork, setPythonReady, setMyNickname }
+    from '../src/network/network.js';
 
   window.js_send_to_network = sendToNetwork;
   window._setPythonReady    = setPythonReady;
 
-  let mySelfId  = '';
+  // 暱稱解析器：把 peer ID 轉為顯示名稱
+  function nickOf(id) {
+    if (id === mySelfId) return myNickname || id.substring(0, 10);
+    return (window._nicknameMap && window._nicknameMap[id]) || id.substring(0, 10);
+  }
+
+  let mySelfId   = '';
+  let myNickname = '';
   let knownCount = 1;
 
   function buildSlots() {
@@ -419,15 +589,28 @@
   }
 
   /* ── window.appendLog ──────────────────────────────────── */
+  // 完整 peerId -> slotIndex 映射表
+  window._slotPeerMap = {};
+
+  window.onPeerJoined = (peerId, count) => {
+    const slotIdx = count - 1;
+    window._slotPeerMap[slotIdx] = peerId;
+    fillSlot(slotIdx, nickOf(peerId), 'filled');
+    setCounter(count);
+  };
+
+  window.onNicknameReceived = (peerId, nick) => {
+    const slotIdx = Object.keys(window._slotPeerMap).find(i => window._slotPeerMap[i] === peerId);
+    if (slotIdx !== undefined) fillSlot(parseInt(slotIdx), nick, 'filled');
+  };
+
   window.appendLog = (msg, type = '') => {
     const panel = document.getElementById('lobby-log');
     if (panel) {
       const countMatch = msg.match(/目前\s*(\d+)\s*\/\s*4/);
       if (countMatch) {
-        const n = parseInt(countMatch[1]);
-        setCounter(n);
-        const peerMatch = msg.match(/玩家\s*(\S{4,})\s*(?:加入|已加入)/);
-        if (peerMatch) fillSlot(n - 1, peerMatch[1], 'filled');
+        // counter/slot 已由 onPeerJoined 處理，這裡只做後備
+        setCounter(parseInt(countMatch[1]));
       }
       const div = document.createElement('div');
       div.textContent = msg;
@@ -440,72 +623,93 @@
 
   /* ── Python event handler ──────────────────────────────── */
   function _handlePythonEvent(eventJson) {
-    let ev;
-    try { ev = JSON.parse(eventJson); } catch(e) { return; }
-    const type = ev.type;
-    console.log('[PythonEvent]', type, ev);
+    let event;
+    try { event = JSON.parse(eventJson); } catch(e) { return; }
+    const type = event.type;
+    console.log('[PythonEvent]', type, event);
 
     if (type === 'NEXT_TURN') {
+      // Game state updated — fetch and render
       try {
-        const stRaw = window.python_get_game_state();
-        const st = JSON.parse(typeof stRaw === 'string' ? stRaw : stRaw.toString());
+        const stateJson = window.python_get_game_state();
+        console.log('[DEBUG NEXT_TURN] raw stateJson type:', typeof stateJson, 'value:', String(stateJson).substring(0, 300));
+        const state = JSON.parse(typeof stateJson === 'string' ? stateJson : stateJson.toString());
+        console.log('[DEBUG NEXT_TURN] state.rows:', JSON.stringify(state.rows), 'state.phase:', state.phase);
         window.renderGamePage(JSON.stringify({
-          scores:      st.scores     || {},
-          table_rows:  st.table_rows || [],
-          my_hand:     st.my_hand    || [],
-          my_name:     mySelfId,
-          all_players: window._players || [],
+          scores:      Object.fromEntries(Object.entries(state.scores || {}).map(([id,v]) => [nickOf(id), v])),
+          table_rows:  state.rows        || state.table_rows || [],
+          my_hand:     state.my_hand     || [],
+          my_name:     nickOf(mySelfId),
+          all_players: (window._players || []).map(nickOf),
         }));
-        window.switchPlayPhase(true, '輪到你出牌，請選一張手牌！', 30);
-      } catch(e) { console.error('[PythonEvent] NEXT_TURN error', e); }
+        // Auto-play last card without user interaction
+        if ((state.my_hand || []).length === 1) {
+          const lastCard = state.my_hand[0];
+          switchPlayPhase(false, `自動出最後一張牌 ${lastCard}...`);
+          setTimeout(() => {
+            if (window.python_receive_input) {
+              window.python_receive_input(JSON.stringify({ action: 'PLAY_CARD', card: lastCard }));
+            }
+          }, 800);
+        } else {
+          switchPlayPhase(true, '輪到你出牌，請選一張手牌！', 30);
+        }
+      } catch(e) { console.error('[PythonEvent] NEXT_TURN render error', e); }
 
     } else if (type === 'WAITING_FOR_OTHERS') {
-      window.switchPlayPhase(false, '等待其他玩家出牌...');
+      switchPlayPhase(false, '等待其他玩家出牌...');
 
     } else if (type === 'ALL_CARDS_REVEALED') {
-      window.switchPlayPhase(false, '正在結算...');
+      switchPlayPhase(false, '正在結算...');
       // Stagger-reveal each player's card in the played zone
-      const cards = ev.cards || {};
-      window.revealAllPlayedStaggered(cards);
+      const cards = event.cards || {};
+      // 暱稱替換
+      const mappedCards = Object.fromEntries(Object.entries(cards).map(([id,v]) => [nickOf(id), v]));
+      window.revealAllPlayedStaggered(mappedCards);
 
     } else if (type === 'ROUND_RESOLVED') {
       // Animate each card going into its row, then update board
       // NOTE: newRows not used inside animateRoundResolution; avoid re-entrant python_get_game_state call
-      const plays = ev.plays || [];
-      const scores = ev.scores || {};
-      console.log('[ROUND_RESOLVED] plays:', JSON.stringify(plays), '| scores:', JSON.stringify(scores));
-      window.animateRoundResolution(plays, [], scores, mySelfId, window._players || []);
+      const plays = event.plays || [];
+      const scores = event.scores || {};
+      const mappedScores = Object.fromEntries(Object.entries(scores).map(([id,v]) => [nickOf(id), v]));
+      const mappedPlays = plays.map(p => ({ ...p, player: nickOf(p.player) }));
+      console.log('[ROUND_RESOLVED] plays:', JSON.stringify(mappedPlays), '| scores:', JSON.stringify(mappedScores));
+      window.animateRoundResolution(mappedPlays, [], mappedScores, nickOf(mySelfId), (window._players || []).map(nickOf));
 
     } else if (type === 'ROW_SELECTION_REQUIRED') {
-      if (ev.player === mySelfId) {
-        window.enableRowSelection(function(rowIdx) {
+      // 先更新桌面狀態再啟用選列
+      try {
+        const stateJson = window.python_get_game_state();
+        const state = JSON.parse(typeof stateJson === 'string' ? stateJson : stateJson.toString());
+        window.renderGamePage(JSON.stringify({
+          scores:      Object.fromEntries(Object.entries(state.scores || {}).map(([id,v]) => [nickOf(id), v])),
+          table_rows:  state.rows        || state.table_rows || [],
+          my_hand:     state.my_hand     || [],
+          my_name:     nickOf(mySelfId),
+          all_players: (window._players || []).map(nickOf),
+        }));
+      } catch(e) { console.error('[PythonEvent] ROW_SELECTION_REQUIRED render error', e); }
+
+      if (event.player === mySelfId) {
+        switchPlayPhase(false, '⚠️ 你的牌最小！請點選上方要收走的列 ↑');
+        window.appendLog('請點選牌桌上要收走的列！', 'system');
+        enableRowSelection(function(rowIdx) {
           if (window.python_receive_input) {
             window.python_receive_input(JSON.stringify({ action: 'CHOOSE_ROW', row_index: rowIdx }));
           }
         });
       } else {
-        window.switchPlayPhase(false, `等待 ${String(ev.player).substring(0,10)} 選擇列...`);
+        switchPlayPhase(false, `等待 ${nickOf(event.player)} 選擇列...`);
       }
 
     } else if (type === 'GAME_OVER') {
-      window.switchPlayPhase(false, '遊戲結束！');
+      switchPlayPhase(false, '🏁 遊戲結束！');
       window.appendLog('遊戲結束', 'system');
+      window.showGameOverScreen(Object.fromEntries(Object.entries(event.scores || {}).map(([id,v]) => [nickOf(id), v])), nickOf(mySelfId));
 
     } else if (type === 'ERROR') {
-      window.appendLog(`[錯誤] ${ev.message}`, 'error');
-      if (ev.message && ev.message.includes("Caught a cheater!")) {
-        const overlay = document.getElementById('cheat-overlay');
-        const msgEl = document.getElementById('cheat-overlay-msg');
-        if (overlay && msgEl) {
-          msgEl.textContent = ev.message;
-          overlay.classList.add('visible');
-        } else {
-          alert(`🚨 作弊警告！\n\n${ev.message}`);
-        }
-      } else {
-        const statusEl = document.getElementById('status-message');
-        if (statusEl) statusEl.textContent = `錯誤: ${ev.message}`;
-      }
+      window.appendLog(`[錯誤] ${event.message}`, 'error');
     }
   }
 
@@ -513,24 +717,31 @@
   window.onRoomFull = async (selfId, players) => {
     mySelfId = selfId;
     window._selfId  = selfId;
-    window._players = players;
+    window._players = players;   // raw peer IDs — Python 一直用這個
 
     document.getElementById('lobby-screen').classList.remove('active');
     document.getElementById('game-screen').classList.add('active');
 
+    showLoading('正在等待暱稱同步...');
+    // 等 800ms 讓所有 NICKNAME 訊息到齊
+    await new Promise(r => setTimeout(r, 800));
+
+    console.log('[NickDebug] _nicknameMap:', JSON.stringify(window._nicknameMap));
+    console.log('[NickDebug] players:', players.map(id => `${id.substring(0,6)}→${nickOf(id)}`));
+
+    // 用原始 peer ID 初始化 Python（Python 內部路由靠 peer ID）
+    const nickSelf    = selfId;   // Python 用 raw ID
+    // mySelfId 保持 raw peer ID，nickOf() 在 render 時做轉換
+    mySelfId          = selfId;
+    window._selfId    = selfId;
+    window._players   = players;  // 保持 raw peer IDs
+
     showLoading('正在載入 Python 遊戲引擎...');
 
     try {
-      // 1. Dynamically load Pyodide JS (only now, not at page load)
-      if (typeof loadPyodide === 'undefined') {
-        await new Promise((resolve, reject) => {
-          const s = document.createElement('script');
-          s.src = 'https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide.js';
-          s.onload = resolve;
-          s.onerror = () => reject(new Error('Failed to load pyodide.js'));
-          document.head.appendChild(s);
-        });
-      }
+      if (typeof loadPyodide === 'undefined') throw new Error('Pyodide not available');
+
+      // 1. Load Pyodide
       const pyodide = await loadPyodide({
         indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.25.0/full/'
       });
@@ -555,23 +766,26 @@
         'commitment/__init__.py', 'commitment/commitment.py',
         'consensus/__init__.py',  'consensus/consensus.py',
         'dealing/__init__.py',    'dealing/dealing.py',
-        'game/__init__.py',       'game/sixnimmt.py',    'game/orchestrator.py',
+        'game/__init__.py',       'game/sixnimmt.py',       'game/orchestrator.py',
         'network/__init__.py',    'network/network.py',
         'main.py',
       ];
+      const _cacheBust = Date.now();
       for (const path of pyFiles) {
-        const r = await fetch(`${BASE}/${path}`);
-        if (r.ok) {
-          pyodide.FS.writeFile(path, await r.text());
-        } else {
-          console.warn('[PeerPlay] fetch failed:', path, r.status);
-        }
+        try {
+          const r = await fetch(`${BASE}/${path}?v=${_cacheBust}`);
+          if (r.ok) {
+            pyodide.FS.writeFile(path, await r.text());
+          } else {
+            console.warn('[PeerPlay] fetch failed:', path, r.status);
+          }
+        } catch(e) { console.warn('[PeerPlay] fetch error:', path, e); }
       }
 
       // 5. Expose JS helpers to Python BEFORE importing main
       pyodide.globals.set('js_send_to_network', sendToNetwork);
 
-      // 6. Import main.py — registers window.python_* via js.*
+      // 6. Import main.py — this registers window.python_init_game etc. via js.*
       updateLoading('正在初始化 Python...');
       await pyodide.runPythonAsync(`
 import sys
@@ -579,19 +793,21 @@ sys.path.insert(0, '.')
 import main
 `);
 
-      // 7. Init orchestrator
+      // 7. Init orchestrator (synchronous) — 用 raw peer ID，Python 內部路由靠這個
       window.python_init_game(selfId, JSON.stringify(players));
 
-      // 8. Register UI notifier
+      // 8. Register UI notifier so Python can push events to JS
       window.python_register_ui_notifier(_handlePythonEvent);
 
-      // 9. Enable message forwarding BEFORE start_game
+      // 9. Enable message forwarding BEFORE start_game (consensus needs it)
       setPythonReady();
 
-      // 10. Start game: consensus + mental-poker dealing (~30–90s)
+      // 10. Start game: consensus + mental-poker dealing (~30–90 s)
       updateLoading('等待所有玩家載入完成...');
       await window.python_start_game();
 
+      // start_game() fires NEXT_TURN via notifier when done — UI already rendered.
+      // But as a safety net, render here too if notifier missed it.
       hideLoading();
 
     } catch(e) {
@@ -618,7 +834,7 @@ import main
         document.getElementById('lobby-screen').classList.add('active');
         setCounter(1);
         buildSlots();
-        fillSlot(0, mySelfId.substring(0, 10), 'me');
+        fillSlot(0, myNickname || mySelfId.substring(0, 10), 'me');
       }
     }, 100);
   };
@@ -626,6 +842,7 @@ import main
   /* ── window.python_receive_from_network ────────────────── */
   window.python_receive_from_network = (peerId, jsonStr) => {
     console.log('[Network] Recv from', peerId, ':', jsonStr);
+    // 把封包轉交給 Python network layer 處理（commit/reveal/dealing 等）
     if (window._pyodide) {
       try {
         window._pyodide.runPython(
@@ -639,12 +856,114 @@ import main
 
   /* ── Boot ──────────────────────────────────────────────── */
   buildSlots();
-  const selfId = initNetwork('peerplay-6nimmt-v1');
-  mySelfId = selfId;
-  window._selfId = selfId;
-  document.getElementById('my-id-badge').textContent = `我的 ID：${selfId.substring(0,16)}…`;
-  fillSlot(0, selfId.substring(0, 10), 'me');
-  setCounter(1);
+
+  const _codeChars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const _genCode = () => Array.from(crypto.getRandomValues(new Uint8Array(6)))
+    .map(b => _codeChars[b % _codeChars.length]).join('');
+  let _currentCode = '';
+
+  function showStep(id) {
+    ['rc-step-choice', 'rc-step-join'].forEach(s => {
+      const el = document.getElementById(s);
+      if (el) el.classList.toggle('active', s === id);
+    });
+  }
+
+  document.getElementById('btn-go-create').addEventListener('click', () => {
+    _currentCode = _genCode();
+    enterRoom(_currentCode);
+  });
+
+  document.getElementById('btn-go-join').addEventListener('click', () => {
+    showStep('rc-step-join');
+    document.getElementById('roomcode-input').focus();
+  });
+
+  document.getElementById('back-from-join').addEventListener('click', () => showStep('rc-step-choice'));
+
+  function enterRoom(code) {
+    const rawNick = document.getElementById('nickname-input').value.trim();
+    document.getElementById('roomcode-screen').classList.remove('active');
+    document.getElementById('lobby-screen').classList.add('active');
+
+    const selfId = initNetwork('peerplay-6nimmt-v1-' + code);
+    mySelfId = selfId;
+    window._selfId = selfId;
+
+    myNickname = rawNick.length > 0 ? rawNick : selfId.substring(0, 8);
+    window._myNickname = myNickname;
+    setMyNickname(myNickname);
+
+    document.getElementById('my-id-badge').textContent = `${myNickname}（${selfId.substring(0, 8)}…）`;
+
+    // Show room code in lobby
+    document.getElementById('lobby-code-val').textContent = code;
+    document.getElementById('lobby-room-code').classList.add('visible');
+    document.getElementById('lobby-copy-btn').onclick = () => {
+      navigator.clipboard.writeText(code).then(() => {
+        const btn = document.getElementById('lobby-copy-btn');
+        btn.textContent = '✓ 已複製';
+        setTimeout(() => { btn.textContent = '📋 複製'; }, 1500);
+      });
+    };
+
+    fillSlot(0, myNickname, 'me');
+    setCounter(1);
+  }
+
+  document.getElementById('join-btn').addEventListener('click', () => {
+    const inp = document.getElementById('roomcode-input');
+    const code = inp.value.trim().toUpperCase().replace(/[^A-Z0-9]/g, '').substring(0, 8);
+    if (code.length < 4) {
+      inp.classList.add('error');
+      setTimeout(() => inp.classList.remove('error'), 1200);
+      return;
+    }
+    enterRoom(code);
+  });
+
+  document.getElementById('roomcode-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('join-btn').click();
+  });
+
+  document.getElementById('nickname-input').focus();
+
+  // ═══ DEV: 快速測試暱稱顯示（不需要4人、不載入Python）════════
+  // 把下面這行的 false 改成 true 即可啟用，測完改回 false
+  const DEV_MOCK = false;
+  if (DEV_MOCK) {
+    const MOCK_SELF  = 'peer-self-0001';
+    const MOCK_PEERS = ['peer-aaa-0002', 'peer-bbb-0003', 'peer-ccc-0004'];
+    const MOCK_NICKS = {
+      [MOCK_SELF]:       '阿明',
+      'peer-aaa-0002':   '小花',
+      'peer-bbb-0003':   'Kevin',
+      'peer-ccc-0004':   '王大錘',
+    };
+
+    // 模擬 enterRoom + 所有 NICKNAME 已收到的狀態
+    myNickname = MOCK_NICKS[MOCK_SELF];
+    mySelfId   = MOCK_SELF;              // raw peer ID，與真實流程一致
+    window._myNickname  = myNickname;
+    window._players     = [MOCK_SELF, ...MOCK_PEERS]; // raw peer IDs
+    setMyNickname(myNickname);           // 這行會覆蓋 _nicknameMap，所以要先呼叫
+    window._nicknameMap = MOCK_NICKS;    // 再覆蓋回完整的 mock 表
+
+    document.getElementById('roomcode-screen').classList.remove('active');
+    document.getElementById('game-screen').classList.add('active');
+
+    // 用 raw peer ID 當 key，模擬 Python 實際回傳的格式
+    // nickOf() 在這裡做真正的轉換 — 這就是測試重點
+    const allPlayers = [MOCK_SELF, ...MOCK_PEERS];
+    window.renderGamePage(JSON.stringify({
+      scores:      Object.fromEntries(allPlayers.map((id, i) => [nickOf(id), i * 3])),
+      table_rows:  [[3,17,42],[7,22],[55],[14,28,31,9]],
+      my_hand:     [1,5,10,15,20,25,30,35,40,45],
+      my_name:     nickOf(MOCK_SELF),
+      all_players: allPlayers.map(nickOf),
+    }));
+  }
+  // ═══════════════════════════════════════════════════════════
 </script>
 
 <!-- DEV: uncomment to bypass lobby and test game UI -->
