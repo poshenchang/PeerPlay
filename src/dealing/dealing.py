@@ -5,8 +5,8 @@ from consensus import ConsensusModule
 from network import (
     RawMessage,
     MSG_TYPE_SHUFFLE, MSG_TYPE_TAG,
-    MSG_TYPE_DETAG, MSG_TYPE_FINALDEAL,
-    MSG_TYPE_COMMIT, MSG_TYPE_REVEAL
+    MSG_TYPE_FINALDEAL, MSG_TYPE_COMMIT,
+    MSG_TYPE_REVEAL
 )
 from utils.crypto import (
     gen_scalar_keypair,
@@ -77,10 +77,9 @@ class DealingModule:
         """
         self.hand_size = hand_size
         await self._init_pid()
-        self._generate_keys(len(deck))
+        self._generate_keys(len(deck), hand_size)
         await self._encrypt_shuffle(deck)
-        await self._tag()
-        await self._detag(hand_size)
+        await self._tag(hand_size)
         await self._decrypt_hand(hand_size)
         if self.pid is None:
             raise DealingError("PID not initialized during dealing")
@@ -151,10 +150,10 @@ class DealingModule:
         idx = self.consensus.node.player_list.index(player_id)
         return self._order[idx]
 
-    def _generate_keys(self, n_cards: int) -> None:
+    def _generate_keys(self, n_cards: int, hand_size: int) -> None:
         self._skey = gen_scalar_keypair()[0]
         self._tkeys = [
-            gen_scalar_keypair()[0] for _ in range(n_cards)
+            gen_scalar_keypair()[0] for _ in range(hand_size)
         ]
         self._used = [False] * n_cards
         return
@@ -181,7 +180,6 @@ class DealingModule:
     async def _listen_pass(self, msg_type: str) -> None:
         if self.pid is None or self.prev_player_id is None:
             raise DealingError("PID or prev_player_id not initialized")
-        # TODO: from prev player or all players?
         while True:
             raw_msgs: List[RawMessage] = await self.consensus.node.consume_messages(
                 msg_type=msg_type,
@@ -192,9 +190,7 @@ class DealingModule:
                 raise DealingError(
                     f"_listen_pass: len(raw_msgs) = {len(raw_msgs)}, expected: 1"
                 )
-            # TODO: use receive to verify?
             if raw_msgs[0].payload["to"] != self.pid:
-                # TODO: should not happen?
                 continue
             break
         self._points = [_json_to_point(p) for p in raw_msgs[0].payload["points"]]
@@ -210,7 +206,6 @@ class DealingModule:
             raise DealingError(
                 f"_listen_finaldeal: Finaldeal message error"
             )
-        # TODO: use receive to verify?
         self._points = [_json_to_point(p) for p in raw_msgs[0].payload["points"]]
 
     async def _encrypt_shuffle(self, deck: List[int]) -> None:
@@ -228,7 +223,7 @@ class DealingModule:
         self._pass_points(MSG_TYPE_SHUFFLE)
         return
 
-    async def _tag(self):
+    async def _tag(self, hand_size: int):
         if self._skey is None:
             raise DealingError("skey not initialized")
         if self.pid == 0:
@@ -238,39 +233,29 @@ class DealingModule:
 
         for i in range(len(self._points)):
             self._points[i] = decrypt_point(self._points[i], self._skey)
-            self._points[i] = encrypt_point(self._points[i], self._tkeys[i])
 
-        self._pass_points(MSG_TYPE_TAG)
-        return
-
-    async def _detag(self, hand_size: int):
-        if self.pid is None:
-            raise DealingError("PID not initialized")
-        if self.pid == 0:
-            await self._listen_pass(MSG_TYPE_TAG)
-        else:
-            await self._listen_pass(MSG_TYPE_DETAG)
-
-        n_player = len(self.consensus.node.player_list)
-        for i in range(n_player * hand_size):
-            if i in range(self.pid * hand_size, (self.pid + 1) * hand_size):
-                continue
-            self._points[i] = decrypt_point(self._points[i], self._tkeys[i])
+        key_idx: int = 0
+        for i in range(self.pid * hand_size, (self.pid + 1) * hand_size):
+            self._points[i] = encrypt_point(self._points[i],
+                                            self._tkeys[key_idx])
+            key_idx += 1
 
         if self.pid == len(self.consensus.node.player_list) - 1:
             self._broadcast_points(MSG_TYPE_FINALDEAL)
         else:
-            self._pass_points(MSG_TYPE_DETAG)
+            self._pass_points(MSG_TYPE_TAG)
         return
 
     async def _decrypt_hand(self, hand_size: int):
         if self.pid is None:
             raise DealingError("PID not initialized")
-        # TODO: last player also attend in consensus?
         if self.pid != len(self.consensus.node.player_list) - 1:
             await self._listen_finaldeal()
+
+        key_idx: int = 0
         for i in range(self.pid * hand_size, (self.pid + 1) * hand_size):
-            point = decrypt_point(self._points[i], self._tkeys[i])
+            point = decrypt_point(self._points[i], self._tkeys[key_idx])
+            key_idx += 1
             self._hand.append(map_from_curve(point))
         return
 
@@ -374,5 +359,5 @@ class DealingModule:
                 base_idx = hand_idx + 1
                 continue
             self._used[key_idx] = True
-            return self._tkeys[key_idx]
+            return self._tkeys[key_idx - self.pid * self.hand_size]
         raise PlayCardError(f"_get_tkey: card {card} used all its tkeys")
