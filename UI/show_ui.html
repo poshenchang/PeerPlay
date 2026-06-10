@@ -948,12 +948,12 @@ import main
 
   document.getElementById('back-from-join').addEventListener('click', () => showStep('rc-step-choice'));
 
-  function enterRoom(code) {
+  async function enterRoom(code) {
     const rawNick = document.getElementById('nickname-input').value.trim();
     document.getElementById('roomcode-screen').classList.remove('active');
     document.getElementById('lobby-screen').classList.add('active');
 
-    const selfId = initNetwork('peerplay-6nimmt-v1-' + code);
+    const selfId = await initNetwork('peerplay-6nimmt-v1-' + code);
     mySelfId = selfId;
     window._selfId = selfId;
 

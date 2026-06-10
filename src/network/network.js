@@ -17,6 +17,20 @@
 
 import { joinRoom, selfId } from 'https://cdn.jsdelivr.net/npm/@trystero-p2p/mqtt/+esm';
 
+const NETWORK_ENV_URL = new URL('../../.env', import.meta.url);
+const DEFAULT_RELAY_URLS = [
+  'wss://broker.emqx.io:8084/mqtt',
+  'wss://broker.hivemq.com:8884/mqtt',
+];
+const DEFAULT_STUN_URLS = [
+  'stun:stun1.l.google.com:19302',
+];
+const DEFAULT_TURN_URLS = [];
+const DEFAULT_TURN_USERNAME = '';
+const DEFAULT_TURN_CREDENTIAL = '';
+
+let networkConfigPromise = null;
+
 // ============================================================================
 // [內部狀態 Internal State] - 僅供網路層內部使用
 // ============================================================================
@@ -47,8 +61,7 @@ let nicknameMap = {};
 export function initNetwork(appId) {
   // 將發送函數掛載到全域，方便 Python 或前端直接呼叫
   window.js_send_to_network = sendToNetwork;
-  searchAndJoinRoom(appId);
-  return selfId;
+  return startNetwork(appId);
 }
 
 /**
@@ -107,7 +120,12 @@ export function leaveNetwork() {
  * @internal
  * @description 尋找並加入 Trystero MQTT 房間的核心邏輯
  */
-function searchAndJoinRoom(appId) {
+async function startNetwork(appId) {
+  await searchAndJoinRoom(appId);
+  return selfId;
+}
+
+async function searchAndJoinRoom(appId) {
   if (isJoiningRoom) return; 
   isJoiningRoom = true;
   isJumping = false;
@@ -118,34 +136,12 @@ function searchAndJoinRoom(appId) {
   const roomId = `room_${currentRoomIdx}`;
   if(window.appendLog) window.appendLog(`[系統] 嘗試進入房間 ${roomId}...`, 'system');
 
+  const networkConfig = await loadNetworkConfig();
+
   room = joinRoom({ 
     appId: appId,
-    relayConfig: { urls: ['wss://broker.emqx.io:8084/mqtt', 'wss://broker.hivemq.com:8884/mqtt'] },
-    rtcConfig: { iceServers: [
-      { urls: "stun:stun1.l.google.com:19302" },
-      { urls: "stun:stun.relay.metered.ca:80" },
-      {
-        urls: "turn:global.relay.metered.ca:80",
-        username: "04e809e8efce89e0b9ab6e97",
-        credential: "EJc5HOWbi8M1bjne",
-      },
-      {
-        urls: "turn:global.relay.metered.ca:80?transport=tcp",
-        username: "04e809e8efce89e0b9ab6e97",
-        credential: "EJc5HOWbi8M1bjne",
-      },
-      {
-        urls: "turn:global.relay.metered.ca:443",
-        username: "04e809e8efce89e0b9ab6e97",
-        credential: "EJc5HOWbi8M1bjne",
-      },
-      {
-        urls: "turns:global.relay.metered.ca:443?transport=tcp",
-        username: "04e809e8efce89e0b9ab6e97",
-        credential: "EJc5HOWbi8M1bjne",
-      },
-      ],
-    }
+    relayConfig: { urls: networkConfig.relayUrls },
+    rtcConfig: { iceServers: buildIceServers(networkConfig) },
   }, roomId);
 
   // --- 內部通道設定 ---
@@ -236,6 +232,104 @@ function searchAndJoinRoom(appId) {
   };
   
   isJoiningRoom = false;
+}
+
+async function loadNetworkConfig() {
+  if (!networkConfigPromise) {
+    networkConfigPromise = (async () => {
+      const config = {
+        relayUrls: [...DEFAULT_RELAY_URLS],
+        stunUrls: [...DEFAULT_STUN_URLS],
+        turnUrls: [...DEFAULT_TURN_URLS],
+        turnUsername: DEFAULT_TURN_USERNAME,
+        turnCredential: DEFAULT_TURN_CREDENTIAL,
+      };
+
+      try {
+        const response = await fetch(NETWORK_ENV_URL);
+        if (!response.ok) return config;
+
+        const envText = await response.text();
+        const env = parseEnvFile(envText);
+
+        config.relayUrls = parseCsvList(env.PEERPLAY_RELAY_URLS, config.relayUrls);
+        config.stunUrls = parseCsvList(env.PEERPLAY_STUN_URLS, config.stunUrls);
+        config.turnUrls = parseCsvList(env.PEERPLAY_TURN_URLS, config.turnUrls);
+        config.turnUsername = normalizeEnvValue(env.PEERPLAY_TURN_USERNAME) || config.turnUsername;
+        config.turnCredential = normalizeEnvValue(env.PEERPLAY_TURN_CREDENTIAL) || config.turnCredential;
+      } catch (error) {
+        if (window.appendLog) {
+          window.appendLog(`[系統] 無法讀取 .env，改用內建網路設定：${error.message}`, 'error');
+        }
+      }
+
+      return config;
+    })();
+  }
+
+  return networkConfigPromise;
+}
+
+function buildIceServers(networkConfig) {
+  const iceServers = [];
+
+  for (const url of networkConfig.stunUrls) {
+    iceServers.push({ urls: url });
+  }
+
+  for (const url of networkConfig.turnUrls) {
+    iceServers.push({
+      urls: url,
+      username: networkConfig.turnUsername,
+      credential: networkConfig.turnCredential,
+    });
+  }
+
+  return iceServers;
+}
+
+function parseEnvFile(envText) {
+  const env = {};
+
+  for (const rawLine of envText.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) continue;
+
+    const equalsIndex = line.indexOf('=');
+    if (equalsIndex === -1) continue;
+
+    const key = line.slice(0, equalsIndex).trim();
+    const value = line.slice(equalsIndex + 1).trim();
+    env[key] = normalizeEnvValue(value);
+  }
+
+  return env;
+}
+
+function normalizeEnvValue(value) {
+  if (value == null) return '';
+
+  const trimmed = String(value).trim();
+  if (!trimmed) return '';
+
+  const quoted = (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"));
+
+  if (quoted && trimmed.length >= 2) {
+    return trimmed.slice(1, -1);
+  }
+
+  return trimmed;
+}
+
+function parseCsvList(value, fallback) {
+  const normalized = normalizeEnvValue(value);
+  if (!normalized) return [...fallback];
+
+  return normalized
+    .split(',')
+    .map(item => item.trim())
+    .filter(Boolean);
 }
 
 /**

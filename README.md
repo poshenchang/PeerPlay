@@ -17,6 +17,7 @@
 - **HTTP Server**：只負責提供靜態檔案（HTML / JS / Python 原始碼）
 - **遊戲通訊**：4 個瀏覽器直接 P2P，不經過主機
 - **Python 邏輯**：透過 Pyodide 在瀏覽器內執行（Mental Poker 發牌協議）
+- **網路設定**：`PeerPlay/.env` 會在瀏覽器啟動時讀取，讓你可以替換 relay / STUN / TURN 設定
 
 ---
 
@@ -28,6 +29,18 @@ python3 -m http.server 8080
 ```
 
 開啟 `http://localhost:8080/UI/show_ui.html`
+
+### 變更 relay / STUN / TURN
+
+編輯 `PeerPlay/.env` 即可。
+
+- `PEERPLAY_RELAY_URLS`：Trystero MQTT relay，逗號分隔
+- `PEERPLAY_STUN_URLS`：STUN server，逗號分隔
+- `PEERPLAY_TURN_URLS`：TURN server，逗號分隔，沒有就留空
+- `PEERPLAY_TURN_USERNAME`：TURN username
+- `PEERPLAY_TURN_CREDENTIAL`：TURN credential
+
+`network.js` 會在啟動時自動讀取這個檔案，沒有 build 步驟；如果你不填 TURN，系統就只用公開 STUN 與 relay。
 
 ---
 
